@@ -538,14 +538,7 @@ html,body{width:100%;max-width:100%;overflow-x:hidden;-webkit-text-size-adjust:1
 </style>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Manrope:wght@400;500;600;700;800&family=Poppins:wght@800;900&family=Noto+Sans+Bengali:wght@400;600&display=swap" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2">
-<script>
-document.addEventListener('DOMContentLoaded',()=>{
-  const b=document.getElementById('directRecoveryBtn');
-  if(b) b.addEventListener('click',saveDirectRecoveryPassword);
-});
-</script>
-</script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
 
@@ -1981,7 +1974,7 @@ function showForgotPassword(){
       const email=$('#recoveryEmail').value.trim();
       $('#recoveryError').textContent='';
       if(!email){$('#recoveryError').textContent='Enter your email address.';return;}
-      const {error}=await sb.auth.resetPasswordForEmail(email,{redirectTo:'http://orhano-two-jet.vercel.app'});
+      const {error}=await sb.auth.resetPasswordForEmail(email,{redirectTo:'https://orhano-two-jet.vercel.app/'});
       if(error){$('#recoveryError').textContent=error.message;return;}
       closeSettingsModal();
       toast('Reset link sent. Check your email.');
@@ -2076,7 +2069,7 @@ async function restoreAuthSession(){
 
 function isPasswordRecoveryUrl(){
   const text=(window.location.hash||'')+' '+(window.location.search||'');
-  return /(?:type=|%3D)recovery/i.test(text);
+  return /(?:[?#&]|^)type(?:=|%3D)recovery/i.test(text) || /(?:[?#&]|^)code(?:=|%3D)/i.test(text);
 }
 
 function showDirectRecoveryScreen(){
@@ -2117,11 +2110,14 @@ async function saveDirectRecoveryPassword(){
   }
 }
 
-async function initAuth(){
-  // Supabase keeps the login session in persistent browser storage.
-  // This prevents a normal app/browser close from forcing a new login.
-  await restoreAuthSession();
+document.addEventListener('DOMContentLoaded',()=>{
+  const b=document.getElementById('directRecoveryBtn');
+  if(b) b.addEventListener('click',saveDirectRecoveryPassword);
+});
 
+async function initAuth(){
+  // Register the recovery listener BEFORE restoring the session so the
+  // PASSWORD_RECOVERY event cannot be missed during page initialization.
   sb.auth.onAuthStateChange(async (_event, session) => {
     if (_event === 'PASSWORD_RECOVERY') {
       authState.user = session ? session.user : null;
@@ -2139,9 +2135,16 @@ async function initAuth(){
     if (state.view === 'account') renderAccount();
   });
 
-  // Fallback: if the recovery URL is already loaded, show the password screen directly.
+  // Restore the normal persistent session after the listener is attached.
+  await restoreAuthSession();
+
+  // Fallback: if the recovery URL is already loaded, show the password screen
+  // after Supabase has had time to exchange the recovery token/code.
   if (isPasswordRecoveryUrl()) {
-    setTimeout(showDirectRecoveryScreen, 250);
+    setTimeout(async()=>{
+      const {data}=await sb.auth.getSession();
+      if(data?.session) showDirectRecoveryScreen();
+    }, 500);
   }
 
   // Android WebView/browser can recreate the page when the app returns.

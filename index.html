@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>ORHANO — Everyday marketplace</title>
 <style>
 :root{
@@ -452,6 +452,13 @@ button{font-family:inherit;cursor:pointer;}
 }
 .login-card .btn-primary{width:100%;}
 .login-error{color:var(--brick); font-size:0.76rem; min-height:1.2em;}
+.auth-help-row{display:flex;justify-content:center;align-items:center;gap:8px;margin-top:1px;flex-wrap:wrap;}
+.auth-link{border:0;background:transparent;color:var(--teal-dark);font:700 .78rem/1.2 'Manrope',system-ui,sans-serif;padding:5px 2px;}
+.auth-help-divider{color:#c8b3a3;font-size:.7rem;}
+html,body{width:100%;max-width:100%;overflow-x:hidden;-webkit-text-size-adjust:100%;text-size-adjust:100%;}
+.app{min-width:0;overflow-x:hidden;}
+@media(max-width:639px){.login-card{width:min(100%,360px);padding:20px 16px}.login-card input{font-size:16px}.app{padding-bottom:calc(74px + env(safe-area-inset-bottom))}.topbar{padding-top:calc(10px + env(safe-area-inset-top))}.hero{margin-left:12px;margin-right:12px}.section{padding-left:12px;padding-right:12px}.categories{padding-left:12px;padding-right:12px}.cart-list,.account-list,.messages-list,.account-grid{padding-left:12px;padding-right:12px}.page-title,.account-head,.search-status{padding-left:12px;padding-right:12px}.cart-summary{margin-left:12px;margin-right:12px}}
+
 
 /* ---------- settings-style menu ---------- */
 .settings-shell{padding-bottom:24px;background:#f4f5f8;min-height:calc(100dvh - 84px);width:100%;}
@@ -514,12 +521,48 @@ button{font-family:inherit;cursor:pointer;}
 .lang-badge{font-size:.78rem;color:#777;}
 @media(min-width:640px){.settings-modal-card{padding-left:32px;padding-right:32px}.settings-modal-head{margin-left:-32px;margin-right:-32px;padding-left:32px;padding-right:32px}.settings-modal-card .account-info-list{margin-left:-32px;margin-right:-32px}.settings-modal-card .account-info-row{padding-left:32px;padding-right:32px}.settings-modal-card .account-info-separator{margin-left:0;margin-right:0;}}
 
+
+/* ---------- DIRECT PASSWORD RECOVERY SCREEN ---------- */
+#directRecoveryScreen{display:none;position:fixed;inset:0;z-index:99999;background:#fff;align-items:center;justify-content:center;padding:24px;overflow:auto}
+#directRecoveryScreen.show{display:flex}
+.direct-recovery-card{width:min(440px,100%);background:#fff;border:1px solid #e5e5e5;border-radius:22px;padding:28px;box-shadow:0 18px 60px rgba(0,0,0,.12)}
+.direct-recovery-card h2{margin:0 0 8px;font-size:26px}
+.direct-recovery-card p{color:#666;margin:0 0 22px;line-height:1.5}
+.direct-recovery-card label{display:block;font-weight:600;margin:14px 0 7px}
+.direct-recovery-card input{width:100%;box-sizing:border-box;padding:13px 14px;border:1px solid #d8d8d8;border-radius:12px;font-size:16px;outline:none}
+.direct-recovery-card input:focus{border-color:#111}
+.direct-recovery-btn{width:100%;border:0;border-radius:12px;padding:14px;margin-top:18px;background:#111;color:#fff;font-size:16px;font-weight:700;cursor:pointer}
+.direct-recovery-btn:disabled{opacity:.55;cursor:not-allowed}
+#directRecoveryError{color:#c62828;min-height:20px;margin:12px 0 0;font-size:14px}
+#directRecoverySuccess{color:#16803a;min-height:20px;margin:12px 0 0;font-size:14px}
 </style>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Manrope:wght@400;500;600;700;800&family=Poppins:wght@800;900&family=Noto+Sans+Bengali:wght@400;600&display=swap" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2">
+<script>
+document.addEventListener('DOMContentLoaded',()=>{
+  const b=document.getElementById('directRecoveryBtn');
+  if(b) b.addEventListener('click',saveDirectRecoveryPassword);
+});
+</script>
+</script>
 </head>
 <body>
+
+
+<div id="directRecoveryScreen" aria-hidden="true">
+  <div class="direct-recovery-card">
+    <h2>Set New Password</h2>
+    <p>Enter your new password below. You came here directly from your password reset email.</p>
+    <label for="directNewPassword">New password</label>
+    <input id="directNewPassword" type="password" autocomplete="new-password" placeholder="Enter new password">
+    <label for="directConfirmPassword">Confirm password</label>
+    <input id="directConfirmPassword" type="password" autocomplete="new-password" placeholder="Confirm new password">
+    <div id="directRecoveryError"></div>
+    <div id="directRecoverySuccess"></div>
+    <button id="directRecoveryBtn" class="direct-recovery-btn">Save New Password</button>
+  </div>
+</div>
 
 <div class="app">
 
@@ -627,6 +670,11 @@ button{font-family:inherit;cursor:pointer;}
         <input id="authPass" type="password" placeholder="Password (min 6 characters)" autocomplete="off">
         <div class="login-error" id="authError"></div>
         <button class="btn-primary" id="authSubmitBtn">Sign in</button>
+        <div class="auth-help-row" id="authHelpRow">
+          <button type="button" class="auth-link" id="forgotPasswordBtn">Forgot password?</button>
+          <span class="auth-help-divider">•</span>
+          <button type="button" class="auth-link" id="forgotEmailBtn">Forgot email?</button>
+        </div>
         <button class="mini-btn" id="authToggleBtn">New here? Create an account</button>
       </div>
     </div>
@@ -1918,7 +1966,37 @@ function setAuthMode(mode){
     : 'Sign in to see your orders and cart across visits.';
   $('#authSubmitBtn').textContent = isSignup ? 'Create account' : 'Sign in';
   $('#authToggleBtn').textContent = isSignup ? 'Already have an account? Sign in' : 'New here? Create an account';
+  $('#authHelpRow').style.display = isSignup ? 'none' : 'flex';
   $('#authError').textContent = '';
+}
+
+function showForgotPassword(){
+  openSettingsModal('Reset Password', `
+    <p class="muted" style="margin-bottom:14px;">Enter the email used for your account. We will send a secure password reset link.</p>
+    <div class="settings-field"><label>Email address</label><input id="recoveryEmail" type="email" inputmode="email" autocomplete="email" placeholder="you@example.com"></div>
+    <p id="recoveryError" class="login-error"></p>
+    <button class="settings-primary" id="sendResetBtn">Send reset link</button>
+  `, ()=>{
+    $('#sendResetBtn').onclick=async()=>{
+      const email=$('#recoveryEmail').value.trim();
+      $('#recoveryError').textContent='';
+      if(!email){$('#recoveryError').textContent='Enter your email address.';return;}
+      const {error}=await sb.auth.resetPasswordForEmail(email,{redirectTo:'http://orhano-two-jet.vercel.app'});
+      if(error){$('#recoveryError').textContent=error.message;return;}
+      closeSettingsModal();
+      toast('Reset link sent. Check your email.');
+    };
+  });
+}
+function showForgotEmail(){
+  openSettingsModal('Forgot Email', `
+    <p class="muted" style="margin-bottom:14px;">For account security, your email cannot be revealed from this screen.</p>
+    <div class="faq"><b>Try this</b><span class="muted">Search your email inboxes for “ORHANO”, “Supabase”, or “confirmation”. The address that received the account confirmation is usually the sign-in email.</span></div>
+    <div class="faq"><b>Still cannot find it?</b><span class="muted">Use the email address you normally use for this account. If you manage the Supabase project, you can also check the Authentication → Users list.</span></div>
+    <button class="settings-primary" id="forgotEmailBackBtn">Back to Sign in</button>
+  `, ()=>{
+    $('#forgotEmailBackBtn').onclick=()=>{closeSettingsModal();goto('account');setAuthMode('signin');};
+  });
 }
 
 async function handleAuthSubmit(){
@@ -1996,12 +2074,60 @@ async function restoreAuthSession(){
   }
 }
 
+function isPasswordRecoveryUrl(){
+  const text=(window.location.hash||'')+' '+(window.location.search||'');
+  return /(?:type=|%3D)recovery/i.test(text);
+}
+
+function showDirectRecoveryScreen(){
+  const screen=document.getElementById('directRecoveryScreen');
+  if(!screen) return;
+  screen.classList.add('show');
+  screen.setAttribute('aria-hidden','false');
+  document.body.style.overflow='hidden';
+  setTimeout(()=>document.getElementById('directNewPassword')?.focus(),100);
+}
+
+async function saveDirectRecoveryPassword(){
+  const p1=document.getElementById('directNewPassword')?.value||'';
+  const p2=document.getElementById('directConfirmPassword')?.value||'';
+  const err=document.getElementById('directRecoveryError');
+  const ok=document.getElementById('directRecoverySuccess');
+  const btn=document.getElementById('directRecoveryBtn');
+  err.textContent=''; ok.textContent='';
+  if(p1.length<6){err.textContent='Password must be at least 6 characters.';return;}
+  if(p1!==p2){err.textContent='Passwords do not match.';return;}
+  btn.disabled=true; btn.textContent='Saving...';
+  try{
+    const {error}=await sb.auth.updateUser({password:p1});
+    if(error) throw error;
+    ok.textContent='Password updated successfully. You can now sign in with your new password.';
+    btn.textContent='Password Saved';
+    setTimeout(()=>{
+      window.history.replaceState({},document.title,window.location.pathname);
+      document.body.style.overflow='';
+      document.getElementById('directRecoveryScreen').classList.remove('show');
+      document.getElementById('directRecoveryScreen').setAttribute('aria-hidden','true');
+      sb.auth.signOut();
+      if(typeof openAuth==='function') openAuth(false);
+    },1200);
+  }catch(e){
+    err.textContent=e?.message||'Unable to update password. Please request a new reset link.';
+    btn.disabled=false; btn.textContent='Save New Password';
+  }
+}
+
 async function initAuth(){
   // Supabase keeps the login session in persistent browser storage.
   // This prevents a normal app/browser close from forcing a new login.
   await restoreAuthSession();
 
   sb.auth.onAuthStateChange(async (_event, session) => {
+    if (_event === 'PASSWORD_RECOVERY') {
+      authState.user = session ? session.user : null;
+      showDirectRecoveryScreen();
+      return;
+    }
     authState.user = session ? session.user : null;
     if (authState.user) {
       await ensureProfile(authState.user);
@@ -2012,6 +2138,11 @@ async function initAuth(){
     }
     if (state.view === 'account') renderAccount();
   });
+
+  // Fallback: if the recovery URL is already loaded, show the password screen directly.
+  if (isPasswordRecoveryUrl()) {
+    setTimeout(showDirectRecoveryScreen, 250);
+  }
 
   // Android WebView/browser can recreate the page when the app returns.
   // Re-check the persisted Supabase session without asking the user to log in again.
@@ -3252,6 +3383,8 @@ $('#avatarFileInput').addEventListener('change', e => {
 
 $('#authSubmitBtn').addEventListener('click', handleAuthSubmit);
 $('#authToggleBtn').addEventListener('click', () => setAuthMode(authState.mode === 'signin' ? 'signup' : 'signin'));
+document.getElementById('forgotPasswordBtn')?.addEventListener('click', showForgotPassword);
+document.getElementById('forgotEmailBtn')?.addEventListener('click', showForgotEmail);
 document.getElementById('signOutBtn')?.addEventListener('click', handleSignOut);
 document.getElementById('settingsSaveNameBtn')?.addEventListener('click', saveSettingsName);
 document.getElementById('settingsSavePassBtn')?.addEventListener('click', saveSettingsPassword);

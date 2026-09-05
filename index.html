@@ -870,6 +870,10 @@ html,body{width:100%;max-width:100%;overflow-x:hidden;-webkit-text-size-adjust:1
     </div>
     <div class="admin-list" id="adminSellerApps"></div>
     <div class="section-head" style="padding:14px 16px 0;">
+      <h2 style="font-size:1rem;">All sellers</h2>
+    </div>
+    <div class="admin-list" id="adminAllSellers"></div>
+    <div class="section-head" style="padding:14px 16px 0;">
       <h2 style="font-size:1rem;">Recent orders</h2>
       <button class="link-btn" id="toggleArchivedBtn">Show archived</button>
     </div>
@@ -953,7 +957,17 @@ async function loadProductsFromDB(){
     $('#feedGrid').innerHTML = `<p style="grid-column:1/-1;color:var(--ink-soft);padding:20px 0;font-size:0.8rem;">Connected to the database, but the products table is empty. Run seed-products.sql in Supabase.</p>`;
     return false;
   }
-  PRODUCTS = data.map(row => ({
+  // Hide listings from any seller an admin has suspended (data still exists in
+  // the DB, so reactivating the seller brings them back with no extra work).
+  let visibleData = data;
+  try {
+    const { data: suspended } = await sb.from('profiles').select('id').eq('seller_status', 'suspended');
+    if (suspended && suspended.length) {
+      const suspendedIds = new Set(suspended.map(s => s.id));
+      visibleData = data.filter(row => !row.seller_id || !suspendedIds.has(row.seller_id));
+    }
+  } catch (_) { /* if this lookup fails for any reason, fall back to showing everything */ }
+  PRODUCTS = visibleData.map(row => ({
     id: row.id,
     name: row.name,
     cat: row.category,
@@ -2199,14 +2213,20 @@ async function renderSeller(){
     return;
   }
   if (status !== 'approved') {
-    if (status === 'rejected') {
+    if (status === 'suspended') {
+      $('#sellerApplyTitle').textContent = 'Seller account suspended';
+      $('#sellerApplyMessage').textContent = 'An admin has suspended your seller account. Your listings are hidden from shoppers until it is reactivated. Contact support if you think this is a mistake.';
+      $('#becomeSellerBtn').style.display = 'none';
+    } else if (status === 'rejected') {
       $('#sellerApplyTitle').textContent = 'Application not approved';
       $('#sellerApplyMessage').textContent = "An admin didn't approve your last seller application. You're welcome to apply again.";
       $('#becomeSellerBtn').textContent = 'Re-apply to become a seller';
+      $('#becomeSellerBtn').style.display = '';
     } else {
       $('#sellerApplyTitle').textContent = 'Become a seller';
       $('#sellerApplyMessage').textContent = "Open a seller account to list and sell your own products on ORHANO. It uses your existing login — no separate signup needed, and you can keep shopping as a buyer too. An admin reviews and approves new seller accounts before you can start listing.";
       $('#becomeSellerBtn').textContent = 'Apply to become a seller';
+      $('#becomeSellerBtn').style.display = '';
     }
     $('#sellerApplyGate').style.display = 'flex';
     return;
@@ -2234,12 +2254,14 @@ async function renderAdmin(){
   $('#adminRevenue').textContent = '…';
   $('#adminApprovals').innerHTML = '';
   $('#adminSellerApps').innerHTML = '';
+  $('#adminAllSellers').innerHTML = '';
 
-  const [{ count: userCount }, { data: productsData }, { data: ordersData }, { data: sellerApps }] = await Promise.all([
+  const [{ count: userCount }, { data: productsData }, { data: ordersData }, { data: sellerApps }, { data: allSellers }] = await Promise.all([
     sb.from('profiles').select('*', { count: 'exact', head: true }),
     sb.from('products').select('seller_id'),
     sb.from('orders').select('id, total, status, created_at, profiles(full_name)').order('created_at', { ascending: false }).limit(20),
     sb.from('profiles').select('id, full_name').eq('seller_status', 'pending'),
+    sb.from('profiles').select('id, full_name, seller_status').in('seller_status', ['approved', 'suspended']).order('full_name'),
   ]);
 
   $('#adminUsers').textContent = userCount ?? '—';
@@ -2261,6 +2283,20 @@ async function renderAdmin(){
         <button class="mini-btn danger" data-seller-reject="${p.id}">Reject</button>
       </div>`).join('')
     : `<p class="muted">No pending seller applications.</p>`;
+
+  const productCountBySeller = {};
+  (productsData || []).forEach(p => {
+    if (p.seller_id) productCountBySeller[p.seller_id] = (productCountBySeller[p.seller_id] || 0) + 1;
+  });
+  $('#adminAllSellers').innerHTML = (allSellers && allSellers.length)
+    ? allSellers.map(s => `
+      <div class="admin-row">
+        <div class="pcard-name" style="flex:1;">${s.full_name || 'Unnamed user'}<br><span class="pcard-meta">${productCountBySeller[s.id] || 0} listing(s) · ${s.seller_status === 'suspended' ? 'Suspended' : 'Active'}</span></div>
+        ${s.seller_status === 'suspended'
+          ? `<button class="mini-btn primary" data-seller-reactivate="${s.id}">Reactivate</button>`
+          : `<button class="mini-btn danger" data-seller-suspend="${s.id}">Suspend</button>`}
+      </div>`).join('')
+    : `<p class="muted">No sellers yet.</p>`;
 
   const toggleBtn = $('#toggleArchivedBtn');
   if (toggleBtn) toggleBtn.textContent = state.adminShowArchived ? 'Hide archived' : 'Show archived';
@@ -3500,6 +3536,29 @@ document.addEventListener('click', async e => {
     if (error) { toast('Approval failed: ' + error.message); return; }
     if (!data || data.length === 0) { toast('Seller not approved — a Supabase RLS/trigger policy is likely blocking this UPDATE for admins.'); return; }
     toast('Seller approved');
+    renderAdmin();
+    return;
+  }
+
+  const suspendBtn = e.target.closest('[data-seller-suspend]');
+  if (suspendBtn) {
+    const id = suspendBtn.dataset.sellerSuspend;
+    if (!confirm('এই সেলারকে suspend করতে চান? তার সব প্রোডাক্ট সাথে সাথে ক্রেতাদের কাছে অদৃশ্য হয়ে যাবে, যতক্ষণ না আবার reactivate করা হয়।')) return;
+    const { data, error } = await sb.from('profiles').update({ seller_status: 'suspended' }).eq('id', id).select();
+    if (error) { toast('Suspend failed: ' + error.message); return; }
+    if (!data || data.length === 0) { toast('Seller suspend হয়নি — সম্ভবত Supabase RLS/trigger policy admin-এর এই UPDATE ব্লক করছে।'); return; }
+    toast('Seller suspended');
+    renderAdmin();
+    return;
+  }
+
+  const reactivateBtn = e.target.closest('[data-seller-reactivate]');
+  if (reactivateBtn) {
+    const id = reactivateBtn.dataset.sellerReactivate;
+    const { data, error } = await sb.from('profiles').update({ seller_status: 'approved' }).eq('id', id).select();
+    if (error) { toast('Reactivate failed: ' + error.message); return; }
+    if (!data || data.length === 0) { toast('Seller reactivate হয়নি — সম্ভবত Supabase RLS/trigger policy admin-এর এই UPDATE ব্লক করছে।'); return; }
+    toast('Seller reactivated');
     renderAdmin();
     return;
   }

@@ -492,6 +492,10 @@ html,body{width:100%;max-width:100%;overflow-x:hidden;-webkit-text-size-adjust:1
 .switch.on{background:#3e63d7;}
 .switch.on span{left:26px;}
 .account-info-note{font-size:.75rem;color:#888;line-height:1.45;margin:14px 0 0;}
+.sv-wrap{text-align:center;padding:18px 6px 4px;}
+.sv-icon{font-size:2.6rem;line-height:1;margin-bottom:10px;}
+.sv-text{font-size:.92rem;color:#444;line-height:1.5;margin:0 0 4px;}
+.sv-text.muted{color:#999;}
 @media(max-width:420px){.account-info-row{min-height:62px}.account-info-row>span:first-child{font-size:.92rem}.account-info-value{font-size:.86rem}}
 .settings-modal{position:fixed;inset:0;background:#fff;display:none;align-items:stretch;justify-content:stretch;z-index:100;width:100vw;height:100dvh;}
 .settings-modal.show{display:flex;}
@@ -707,7 +711,7 @@ html,body{width:100%;max-width:100%;overflow-x:hidden;-webkit-text-size-adjust:1
       </div>
       <div class="account-list">
         <button class="account-row" data-goto="seller">Seller Center</button>
-        <button class="account-row" data-goto="admin-gate">Admin panel (restricted)</button>
+        <button class="account-row" data-goto="admin-gate" id="adminPanelRow" style="display:none;">Admin panel (restricted)</button>
       </div>
     </div>
   </main>
@@ -1778,7 +1782,7 @@ function showView(view, productId){
   if (view === 'cart') renderCart();
   if (view === 'seller') renderSeller();
   if (view === 'account') renderAccount();
-  if (view === 'settings') { renderSettings(); renderSettingsMenu(); }
+  if (view === 'settings') { renderSettingsMenu(); }
   if (view === 'admin-gate') checkAdminAccess();
   if (view === 'orders') renderOrders();
   if (view === 'saved') renderSaved();
@@ -1870,6 +1874,12 @@ async function renderAccount(){
     const { count } = await sb.from('orders').select('*', { count: 'exact', head: true })
       .eq('user_id', authState.user.id).not('status', 'in', '(delivered,cancelled,returned)');
     $('#statOrders').textContent = count ?? 0;
+
+    // Only show the "Admin panel" entry to accounts whose profile role is admin.
+    // Customers and sellers never see this button (the backend still enforces
+    // the same rule independently in checkAdminAccess).
+    const { data: profileRow } = await sb.from('profiles').select('role').eq('id', authState.user.id).single();
+    $('#adminPanelRow').style.display = (profileRow && profileRow.role === 'admin') ? '' : 'none';
   } else {
     $('#authGate').style.display = 'flex';
     $('#accountBody').style.display = 'none';
@@ -1911,43 +1921,15 @@ async function handleAvatarUpload(file){
   toast('Profile picture updated');
 }
 
-function renderSettings(){
-  if (!authState.user) return;
-  const name = authState.user.user_metadata?.full_name || authState.user.email;
-  $('#settingsNameInput').value = name;
-  $('#settingsEmail').textContent = authState.user.email;
-  $('#settingsCurrencySelect').innerHTML = Object.entries(CURRENCIES).map(([code, c]) =>
-    `<option value="${code}" ${code === state.currency ? 'selected' : ''}>${c.flag} ${code} · ${c.country}</option>`
-  ).join('');
-  $('#settingsNewPass').value = '';
-  $('#settingsNewPass2').value = '';
-  $('#settingsPassError').textContent = '';
-}
-
-async function saveSettingsName(){
-  const newName = $('#settingsNameInput').value.trim();
-  if (!newName) { toast('Enter a name first'); return; }
-  const { error: authErr } = await sb.auth.updateUser({ data: { full_name: newName } });
-  if (authErr) { toast('Could not update name: ' + authErr.message); return; }
-  const { error: profErr } = await sb.from('profiles').update({ full_name: newName }).eq('id', authState.user.id);
-  if (profErr) console.error('Profile update warning:', profErr);
-  authState.user.user_metadata = { ...authState.user.user_metadata, full_name: newName };
-  renderAccount();
-  toast('Name updated');
-}
-
-async function saveSettingsPassword(){
-  const pass1 = $('#settingsNewPass').value;
-  const pass2 = $('#settingsNewPass2').value;
-  $('#settingsPassError').textContent = '';
-  if (!pass1 || pass1.length < 6) { $('#settingsPassError').textContent = 'Password must be at least 6 characters.'; return; }
-  if (pass1 !== pass2) { $('#settingsPassError').textContent = 'Passwords do not match.'; return; }
-  const { error } = await sb.auth.updateUser({ password: pass1 });
-  if (error) { $('#settingsPassError').textContent = error.message; return; }
-  $('#settingsNewPass').value = '';
-  $('#settingsNewPass2').value = '';
-  toast('Password updated');
-}
+/* NOTE (fix): the old inline settings form (#settingsNameInput, #settingsEmail,
+   #settingsCurrencySelect, #settingsNewPass, #settingsNewPass2, #settingsPassError)
+   no longer exists in the markup — it was replaced by the Settings Center menu
+   (Account Information / Security modals below). The old renderSettings()/
+   saveSettingsName()/saveSettingsPassword() functions were dead code that threw
+   "Cannot set properties of null" on every visit to the Settings tab, which
+   silently blocked renderSettingsMenu() from running right after it. They have
+   been removed; name editing now lives in editAccountName() and password
+   changes in the Security flow (startPasswordVerification/showSecurity). */
 
 function setAuthMode(mode){
   authState.mode = mode;
@@ -1974,8 +1956,15 @@ function showForgotPassword(){
       const email=$('#recoveryEmail').value.trim();
       $('#recoveryError').textContent='';
       if(!email){$('#recoveryError').textContent='Enter your email address.';return;}
-      const {error}=await sb.auth.resetPasswordForEmail(email,{redirectTo:'https://orhano-two-jet.vercel.app/'});
-      if(error){$('#recoveryError').textContent=error.message;return;}
+      // Return to the deployment that actually requested the reset.
+      // This avoids depending on the old Vercel URL and works on GitHub Pages.
+      const redirectTo = new URL(window.location.pathname || '/', window.location.origin).href;
+      const {error}=await sb.auth.resetPasswordForEmail(email,{redirectTo});
+      if(error){
+        console.error('Password reset request failed:', error);
+        $('#recoveryError').textContent=error.message || 'Could not send reset email. Please try again.';
+        return;
+      }
       closeSettingsModal();
       toast('Reset link sent. Check your email.');
     };
@@ -2324,7 +2313,9 @@ function setLanguage(lang){
   });
   $('#settingsLanguageSub').textContent = lang === 'bn' ? 'বাংলা' : 'English';
 }
-function openSettingsModal(title, html, afterOpen){
+let currentModalBackTo = null;
+function openSettingsModal(title, html, afterOpen, backTo){
+  currentModalBackTo = backTo || null;
   $('#settingsModalTitle').textContent=title;
   $('#settingsModalBody').innerHTML=html;
   $('#settingsModal').classList.add('show');
@@ -2338,12 +2329,26 @@ function openSettingsModal(title, html, afterOpen){
 function closeSettingsModal(fromPopState=false){
   const modal=$('#settingsModal');
   if (!modal) return;
+  // Route every close trigger (the × button, tapping the overlay, and the
+  // device/browser Back) through the same path: consume this screen's
+  // history entry first, and let the resulting popstate event below decide
+  // whether that means "go to the parent settings screen" or "exit" — this
+  // keeps the visible screen and the browser history in sync no matter
+  // which of the three triggered it.
+  if (!fromPopState) {
+    if (appHistoryReady && history.state?.orhano && history.state.type==='modal') {
+      history.back();
+      return;
+    }
+  }
+  if (currentModalBackTo) {
+    const backTo = currentModalBackTo;
+    backTo();
+    return;
+  }
   modal.classList.remove('show');
   modal.setAttribute('aria-hidden','true');
-  // X/overlay/back buttons should consume the modal's history entry.
-  if (!fromPopState && appHistoryReady && history.state?.orhano && history.state.type==='modal') {
-    history.back();
-  }
+  currentModalBackTo = null;
 }
 function escapeHtml(v){
   return String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -3059,6 +3064,272 @@ function showSecurity(){
     closeSettingsModal();toast('Password updated successfully');
   });
 }
+
+/* ================= Privacy protection ================= */
+function showPrivacyProtection(){
+  openSettingsModal('Privacy protection', `
+    <div class="account-info-list">
+      <button class="account-info-row" id="privacySystemSettingBtn"><span>System Setting</span><span class="chev">›</span></button>
+      <div class="account-info-separator"></div>
+      <button class="account-info-row" id="privacyAccountDeletionBtn"><span>Account Deletion</span><span class="chev">›</span></button>
+    </div>
+  `, () => {
+    $('#privacySystemSettingBtn').onclick = showSystemSettings;
+    $('#privacyAccountDeletionBtn').onclick = showSecurityVerification;
+  });
+}
+
+/* ---- System Setting: real device-permission toggles ---- */
+function getPermissionPrefs(){
+  try { return JSON.parse(localStorage.getItem('orhano_permissions') || '{}'); }
+  catch(e){ return {}; }
+}
+function savePermissionPrefs(p){ localStorage.setItem('orhano_permissions', JSON.stringify(p)); }
+
+/* Reads the browser's own permission state where it exposes one (Chrome-family
+   browsers support this for geolocation/microphone/camera; others may not —
+   in that case we fall back to what ORHANO itself last recorded). */
+async function queryBrowserPermission(name){
+  if (!navigator.permissions || !navigator.permissions.query) return null;
+  try { const status = await navigator.permissions.query({ name }); return status.state; }
+  catch(e){ return null; }
+}
+/* Camera/mic/location are only exposed by browsers on a "secure context" —
+   an https:// page, or localhost. Opening this file directly (file://) or
+   over plain http:// makes the browser refuse these APIs outright; that is
+   a browser security rule, not something any front-end code can work around. */
+function requestLocationAccess(){
+  return new Promise(resolve => {
+    if (!window.isSecureContext) return resolve({ granted:false, reason:'insecure' });
+    if (!navigator.geolocation) return resolve({ granted:false, reason:'unsupported' });
+    navigator.geolocation.getCurrentPosition(
+      () => resolve({ granted:true }),
+      (err) => resolve({ granted:false, reason: err && err.code === 1 ? 'denied' : 'error' }),
+      { timeout: 8000 }
+    );
+  });
+}
+async function requestMediaAccess(constraints){
+  if (!window.isSecureContext) return { granted:false, reason:'insecure' };
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return { granted:false, reason:'unsupported' };
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia(constraints);
+    stream.getTracks().forEach(t => t.stop()); // only needed the permission prompt, not a live stream
+    return { granted:true };
+  } catch(e){ return { granted:false, reason: e.name === 'NotAllowedError' ? 'denied' : 'error' }; }
+}
+function permissionFailureMessage(reason){
+  if (reason === 'insecure') return "This permission only works when ORHANO is opened over https:// (or localhost) — the browser blocks it otherwise.";
+  if (reason === 'unsupported') return "This browser doesn't support this permission.";
+  if (reason === 'denied') return "Access was blocked. Turn it on from your browser's site settings for this page, then try again here.";
+  return "Access wasn't granted. Please try again.";
+}
+function setSwitchState(id, on){
+  const el = $('#perm-' + id);
+  if (!el) return;
+  el.classList.toggle('on', !!on);
+  el.setAttribute('aria-pressed', String(!!on));
+}
+function systemSettingRow(id, label){
+  return `<div class="account-info-row account-info-toggle"><span>${label}</span>
+    <button type="button" class="switch" id="perm-${id}" data-permission="${id}" aria-pressed="false"><span></span></button>
+  </div>`;
+}
+function showSystemSettings(){
+  openSettingsModal('System Settings', `
+    <div class="account-info-list">
+      ${systemSettingRow('location','Allow ORHANO to access location information')}
+      ${systemSettingRow('microphone','Allow ORHANO to access microphone')}
+      ${systemSettingRow('camera','Allow ORHANO to access camera')}
+      ${systemSettingRow('photos','Allow ORHANO to access photo album')}
+    </div>
+    <p class="account-info-note">Turning one on will ask your browser to confirm access. Browsers don't let a website turn its own permission back off — if you switch one off here, ORHANO simply stops using it; to fully revoke it, use your browser's own site settings.</p>
+  `, initSystemSettings, showPrivacyProtection);
+}
+async function initSystemSettings(){
+  const prefs = getPermissionPrefs();
+  const [geo, mic, cam] = await Promise.all([
+    queryBrowserPermission('geolocation'),
+    queryBrowserPermission('microphone'),
+    queryBrowserPermission('camera'),
+  ]);
+  setSwitchState('location', geo === 'granted' || (geo === null && !!prefs.location));
+  setSwitchState('microphone', mic === 'granted' || (mic === null && !!prefs.microphone));
+  setSwitchState('camera', cam === 'granted' || (cam === null && !!prefs.camera));
+  // The web platform has no persistent OS-level "photo album" permission —
+  // this switch instead gates ORHANO's own photo-picker buttons (e.g. avatar upload).
+  setSwitchState('photos', prefs.photos !== false);
+
+  $$('[data-permission]').forEach(btn => btn.onclick = async () => {
+    const id = btn.dataset.permission;
+    const turningOn = !btn.classList.contains('on');
+    const prefs2 = getPermissionPrefs();
+    if (turningOn) {
+      let result = { granted:true };
+      if (id === 'location') result = await requestLocationAccess();
+      else if (id === 'microphone') result = await requestMediaAccess({ audio: true });
+      else if (id === 'camera') result = await requestMediaAccess({ video: true });
+      if (!result.granted) { toast(permissionFailureMessage(result.reason)); return; }
+      prefs2[id] = true; savePermissionPrefs(prefs2);
+      setSwitchState(id, true);
+      toast('Access allowed');
+    } else {
+      prefs2[id] = false; savePermissionPrefs(prefs2);
+      setSwitchState(id, false);
+      toast(id === 'photos' ? 'Photo album access turned off for ORHANO' : 'ORHANO will stop using this permission');
+    }
+  });
+}
+
+/* ---- Account Deletion: identity verification, then delete ---- */
+function showSecurityVerification(){
+  openSettingsModal('Security Verification', `
+    <div class="sv-wrap">
+      <div class="sv-icon">🛡️</div>
+      <p class="sv-text">To protect your account security, we need to verify your identity</p>
+      <p class="sv-text muted">Please choose a way to verify:</p>
+    </div>
+    <div class="account-info-list" style="margin-top:18px;">
+      <button class="account-info-row" id="svEmailBtn"><span>✉️ Verify through Email</span><span class="chev">›</span></button>
+      <button class="account-info-row" id="svMobileBtn"><span>📱 Mobile Verification</span><span class="chev">›</span></button>
+      <button class="account-info-row" id="svPasswordBtn"><span>🔑 Verify through Password</span><span class="chev">›</span></button>
+    </div>
+  `, () => {
+    $('#svEmailBtn').onclick = startEmailVerification;
+    $('#svMobileBtn').onclick = startMobileVerification;
+    $('#svPasswordBtn').onclick = startPasswordVerification;
+  }, showPrivacyProtection);
+}
+function startPasswordVerification(){
+  openSettingsModal('Verify through Password', `
+    <p class="muted" style="margin-bottom:14px;">Enter your current password for ${escapeHtml(authState.user?.email||'')}</p>
+    <div class="settings-field"><label>Password</label><input id="svPassInput" type="password" placeholder="Current password"></div>
+    <p id="svPassError" class="login-error"></p>
+    <button class="settings-primary" id="svPassConfirm">Confirm</button>
+  `, () => $('#svPassConfirm').onclick = async () => {
+    const pass = $('#svPassInput').value;
+    $('#svPassError').textContent = '';
+    if (!pass) { $('#svPassError').textContent = 'Enter your password.'; return; }
+    $('#svPassConfirm').disabled = true; $('#svPassConfirm').textContent = 'Checking…';
+    const { error } = await sb.auth.signInWithPassword({ email: authState.user.email, password: pass });
+    $('#svPassConfirm').disabled = false; $('#svPassConfirm').textContent = 'Confirm';
+    if (error) { $('#svPassError').textContent = 'Incorrect password.'; return; }
+    showConfirmDeletion();
+  }, showSecurityVerification);
+}
+function startEmailVerification(){
+  const email = authState.user?.email;
+  openSettingsModal('Verify through Email', `
+    <p class="muted" style="margin-bottom:14px;">We'll send a 6-digit code to ${escapeHtml(email||'')}</p>
+    <button class="settings-primary" id="svEmailSendBtn">Send code</button>
+    <div id="svEmailCodeArea" style="display:none;margin-top:14px;">
+      <div class="settings-field"><label>Enter code</label><input id="svEmailCodeInput" inputmode="numeric" maxlength="6" placeholder="123456"></div>
+      <p id="svEmailError" class="login-error"></p>
+      <button class="settings-primary" id="svEmailConfirmBtn">Confirm</button>
+    </div>
+  `, () => {
+    $('#svEmailSendBtn').onclick = async () => {
+      $('#svEmailSendBtn').disabled = true; $('#svEmailSendBtn').textContent = 'Sending…';
+      const { error } = await sb.auth.signInWithOtp({ email, options: { shouldCreateUser: false } });
+      $('#svEmailSendBtn').disabled = false; $('#svEmailSendBtn').textContent = 'Resend code';
+      if (error) { toast('Could not send code: ' + error.message); return; }
+      $('#svEmailCodeArea').style.display = 'block';
+      toast('Code sent to your email');
+    };
+    $('#svEmailConfirmBtn').onclick = async () => {
+      const token = $('#svEmailCodeInput').value.trim();
+      $('#svEmailError').textContent = '';
+      if (!token) { $('#svEmailError').textContent = 'Enter the code.'; return; }
+      const { error } = await sb.auth.verifyOtp({ email, token, type: 'email' });
+      if (error) { $('#svEmailError').textContent = error.message; return; }
+      showConfirmDeletion();
+    };
+  }, showSecurityVerification);
+}
+function startMobileVerification(){
+  const phone = authState.user?.phone;
+  if (!phone) {
+    openSettingsModal('Mobile Verification', `
+      <p class="muted">No mobile number is saved on this account, so it can't be used to verify your identity.</p>
+      <p class="account-info-note">Add one from Settings → Account Information → Change Mobile, then come back here.</p>
+      <button class="settings-primary" id="svMobileBackBtn">Choose another method</button>
+    `, () => $('#svMobileBackBtn').onclick = showSecurityVerification, showSecurityVerification);
+    return;
+  }
+  openSettingsModal('Mobile Verification', `
+    <p class="muted" style="margin-bottom:14px;">We'll send a 6-digit code by SMS to ${escapeHtml(maskValue(phone,3,2))}</p>
+    <button class="settings-primary" id="svMobileSendBtn">Send code</button>
+    <div id="svMobileCodeArea" style="display:none;margin-top:14px;">
+      <div class="settings-field"><label>Enter code</label><input id="svMobileCodeInput" inputmode="numeric" maxlength="6" placeholder="123456"></div>
+      <p id="svMobileError" class="login-error"></p>
+      <button class="settings-primary" id="svMobileConfirmBtn">Confirm</button>
+    </div>
+    <p class="account-info-note">SMS delivery depends on the phone/SMS provider configured for this project in Supabase.</p>
+  `, () => {
+    $('#svMobileSendBtn').onclick = async () => {
+      $('#svMobileSendBtn').disabled = true; $('#svMobileSendBtn').textContent = 'Sending…';
+      const { error } = await sb.auth.signInWithOtp({ phone });
+      $('#svMobileSendBtn').disabled = false; $('#svMobileSendBtn').textContent = 'Resend code';
+      if (error) { toast('Could not send code: ' + error.message); return; }
+      $('#svMobileCodeArea').style.display = 'block';
+      toast('Code sent by SMS');
+    };
+    $('#svMobileConfirmBtn').onclick = async () => {
+      const token = $('#svMobileCodeInput').value.trim();
+      $('#svMobileError').textContent = '';
+      if (!token) { $('#svMobileError').textContent = 'Enter the code.'; return; }
+      const { error } = await sb.auth.verifyOtp({ phone, token, type: 'sms' });
+      if (error) { $('#svMobileError').textContent = error.message; return; }
+      showConfirmDeletion();
+    };
+  }, showSecurityVerification);
+}
+function showConfirmDeletion(){
+  openSettingsModal('Delete Account', `
+    <p class="muted" style="margin-bottom:10px;">Your identity is verified. Deleting your account will:</p>
+    <ul style="margin:0 0 16px 18px;padding:0;color:#555;font-size:.9rem;line-height:1.6;">
+      <li>Sign you out of ORHANO on this device</li>
+      <li>Remove your saved profile information</li>
+      <li>Unfollow the shops you follow</li>
+    </ul>
+    <p class="login-error" style="margin-bottom:14px;">This cannot be undone.</p>
+    <div class="settings-field"><label>Type DELETE to confirm</label><input id="confirmDeleteInput" placeholder="DELETE"></div>
+    <button class="settings-primary" id="confirmDeleteBtn" style="background:#c0392b;">Delete my account</button>
+  `, () => $('#confirmDeleteBtn').onclick = async () => {
+    if ($('#confirmDeleteInput').value.trim().toUpperCase() !== 'DELETE') { toast('Type DELETE to confirm'); return; }
+    $('#confirmDeleteBtn').disabled = true; $('#confirmDeleteBtn').textContent = 'Deleting…';
+    await performAccountDeletion();
+  }, showSecurityVerification);
+}
+async function performAccountDeletion(){
+  const uid = authState.user?.id;
+  try {
+    // A deployed Supabase Edge Function named "delete-account" (running with the
+    // service_role key, which must stay on a server and never in this file) is
+    // the only way to remove the login itself. If one exists for this project,
+    // this call finishes the job; otherwise we fall back to the cleanup below.
+    const { error: fnError } = await sb.functions.invoke('delete-account');
+    if (fnError) console.warn('delete-account function unavailable, using client-side cleanup:', fnError.message);
+  } catch(e) { console.warn('delete-account function unavailable, using client-side cleanup:', e); }
+
+  try { await sb.from('followed_sellers').delete().eq('follower_id', uid); } catch(e){}
+  try { await sb.from('profiles').delete().eq('id', uid); } catch(e){}
+
+  localStorage.removeItem('orhano_account_prefs');
+  localStorage.removeItem('orhano_permissions');
+  await sb.auth.signOut();
+  authState.user = null;
+  state.cart = {};
+  state.wishlist = new Set();
+  state.followedShops = new Set();
+  renderCartBadge();
+  renderAccount();
+  refreshProductCards();
+  closeSettingsModal();
+  goto('home');
+  toast('Your account data has been removed and you are signed out.');
+}
+
 function showPolicies(){
   openSettingsModal('Policies',`
     <div class="faq"><b>Privacy</b><span class="muted">Your account data is used to provide shopping, orders, cart and account services.</span></div>
@@ -3225,8 +3496,9 @@ document.addEventListener('click', async e => {
   const approveBtn = e.target.closest('[data-seller-approve]');
   if (approveBtn) {
     const id = approveBtn.dataset.sellerApprove;
-    const { error } = await sb.from('profiles').update({ seller_status: 'approved' }).eq('id', id);
+    const { data, error } = await sb.from('profiles').update({ seller_status: 'approved' }).eq('id', id).select();
     if (error) { toast('Approval failed: ' + error.message); return; }
+    if (!data || data.length === 0) { toast('Seller not approved — a Supabase RLS/trigger policy is likely blocking this UPDATE for admins.'); return; }
     toast('Seller approved');
     renderAdmin();
     return;
@@ -3235,8 +3507,9 @@ document.addEventListener('click', async e => {
   const rejectBtn = e.target.closest('[data-seller-reject]');
   if (rejectBtn) {
     const id = rejectBtn.dataset.sellerReject;
-    const { error } = await sb.from('profiles').update({ seller_status: 'rejected' }).eq('id', id);
+    const { data, error } = await sb.from('profiles').update({ seller_status: 'rejected' }).eq('id', id).select();
     if (error) { toast('Rejection failed: ' + error.message); return; }
+    if (!data || data.length === 0) { toast('Seller application not rejected — a Supabase RLS/trigger policy is likely blocking this UPDATE for admins.'); return; }
     toast('Seller application rejected');
     renderAdmin();
     return;
@@ -3345,7 +3618,6 @@ $('#imageSearchInput').addEventListener('change', e => {
 $('#currencySelect').addEventListener('change', e => {
   state.currency = e.target.value;
   refreshVisiblePrices();
-  if (state.view === 'settings') renderSettings();
   toast(`Prices now shown in ${state.currency}`);
 });
 
@@ -3377,7 +3649,13 @@ $('#sellerAddBtn').addEventListener('click', async () => {
   toast('Product added and is now live');
 });
 
-$('#avatarEditBtn').addEventListener('click', () => $('#avatarFileInput').click());
+$('#avatarEditBtn').addEventListener('click', () => {
+  if (getPermissionPrefs().photos === false) {
+    toast('Photo album access is off. Turn it on in Settings → Account Security → System Setting.');
+    return;
+  }
+  $('#avatarFileInput').click();
+});
 $('#avatarFileInput').addEventListener('change', e => {
   const file = e.target.files[0];
   if (file) handleAvatarUpload(file);
@@ -3389,21 +3667,19 @@ $('#authToggleBtn').addEventListener('click', () => setAuthMode(authState.mode =
 document.getElementById('forgotPasswordBtn')?.addEventListener('click', showForgotPassword);
 document.getElementById('forgotEmailBtn')?.addEventListener('click', showForgotEmail);
 document.getElementById('signOutBtn')?.addEventListener('click', handleSignOut);
-document.getElementById('settingsSaveNameBtn')?.addEventListener('click', saveSettingsName);
-document.getElementById('settingsSavePassBtn')?.addEventListener('click', saveSettingsPassword);
 document.getElementById('settingsSignOutBtn')?.addEventListener('click', handleSignOut);
 document.addEventListener('click', e => {
   if (e.target.closest('#signOutBtn')) handleSignOut();
 });
 
 
-$('#settingsModalClose')?.addEventListener('click', closeSettingsModal);
+$('#settingsModalClose')?.addEventListener('click', () => closeSettingsModal());
 $('#settingsModal')?.addEventListener('click', e=>{if(e.target.id==='settingsModal')closeSettingsModal();});
 $('#settingsAccountInfoBtn')?.addEventListener('click', showAccountInfo);
 $('#settingsAddressBtn')?.addEventListener('click', showAddressBook);
 $('#settingsCountryBtn')?.addEventListener('click', showCountry);
 $('#settingsLanguageBtn')?.addEventListener('click', showLanguage);
-$('#settingsSecurityBtn')?.addEventListener('click', showSecurity);
+$('#settingsSecurityBtn')?.addEventListener('click', showPrivacyProtection);
 $('#settingsPoliciesBtn')?.addEventListener('click', showPolicies);
 $('#settingsHelpBtn')?.addEventListener('click', showHelp);
 $('#settingsFeedbackBtn')?.addEventListener('click', showFeedback);
@@ -3425,7 +3701,6 @@ async function init(){
   loadLiveRates().then(() => {
     renderCurrencySelect();
     refreshVisiblePrices();
-    if (state.view === 'settings') renderSettings();
   });
 
   try {
@@ -3441,5 +3716,386 @@ async function init(){
 init();
 
 </script>
+
+<style id="orhano-v4-upgrade">
+.v4-modal{position:fixed;inset:0;background:rgba(0,0,0,.48);z-index:100000;display:none;align-items:flex-end;justify-content:center}
+.v4-modal.show{display:flex}
+.v4-sheet{background:#fff;width:min(760px,100%);max-height:92dvh;overflow:auto;border-radius:22px 22px 0 0;padding:20px}
+.v4-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}
+.v4-head h3{font-family:'Manrope',sans-serif;font-size:1.15rem;font-weight:800}
+.v4-close{border:0;background:#f1f2f4;width:36px;height:36px;border-radius:50%;font-size:1.2rem}
+.v4-field{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+.v4-field label{font-size:.78rem;font-weight:700;color:#666}
+.v4-field input,.v4-field select,.v4-field textarea{width:100%;padding:11px 12px;border:1px solid #dddfe4;border-radius:11px;font:inherit;outline:none}
+.v4-field textarea{min-height:100px}
+.v4-grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.v4-primary{width:100%;border:0;border-radius:999px;background:var(--teal);color:#fff;padding:12px 16px;font-weight:800}
+.v4-secondary{border:1px solid #ddd;background:#fff;border-radius:999px;padding:9px 14px;font-weight:700}
+.v4-danger{border:1px solid #efc6bf;background:#fff;color:#c0392b;border-radius:999px;padding:9px 14px;font-weight:700}
+.v4-pay{display:flex;gap:10px;flex-wrap:wrap}
+.v4-pay button{flex:1;min-width:120px;border:1px solid #ddd;background:#fff;border-radius:14px;padding:13px;font-weight:800;text-align:left}
+.v4-pay button.active{border:2px solid var(--teal);background:#fff7f0}
+.v4-note{font-size:.76rem;color:#777;line-height:1.5}
+.v4-image-preview{width:100%;aspect-ratio:1/1;border:1px dashed #ccc;border-radius:14px;display:flex;align-items:center;justify-content:center;overflow:hidden;background:#fafafa;font-size:3rem}
+.v4-image-preview img{width:100%;height:100%;object-fit:cover}
+.v4-admin-stat{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin:12px 0}
+.v4-admin-stat div{background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px}
+.v4-admin-stat strong{display:block;font-size:1.2rem}
+.v4-admin-stat span{font-size:.7rem;color:var(--ink-soft)}
+@media(min-width:640px){.v4-modal{align-items:center;padding:20px}.v4-sheet{border-radius:22px}.v4-admin-stat{grid-template-columns:repeat(4,1fr)}}
+</style>
+
+<script id="orhano-v4-upgrade-js">
+/* ORHANO V4 functional upgrade layer.
+   Uses the existing Supabase client/schema and adds safer UX for:
+   selected-item checkout, payment selection, seller product editor,
+   product image upload, seller order totals, admin commission settings,
+   feedback persistence, and realtime refresh hooks.
+*/
+(() => {
+  const V4 = {
+    payment: 'cod',
+    productImageUrl: '',
+    commissionRate: Number(localStorage.getItem('orhano_commission_rate') || 10),
+  };
+
+  const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+  function modal(title, body, onOpen) {
+    let el = document.getElementById('v4Modal');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'v4Modal';
+      el.className = 'v4-modal';
+      el.innerHTML = `<div class="v4-sheet">
+        <div class="v4-head"><h3 id="v4Title"></h3><button class="v4-close" id="v4Close">×</button></div>
+        <div id="v4Body"></div>
+      </div>`;
+      document.body.appendChild(el);
+      el.addEventListener('click', e => { if (e.target === el) el.classList.remove('show'); });
+      el.querySelector('#v4Close').onclick = () => el.classList.remove('show');
+    }
+    el.querySelector('#v4Title').textContent = title;
+    el.querySelector('#v4Body').innerHTML = body;
+    el.classList.add('show');
+    if (onOpen) onOpen(el);
+    return el;
+  }
+
+  function closeModal() {
+    document.getElementById('v4Modal')?.classList.remove('show');
+  }
+
+  async function uploadProductImage(file, productIdHint='new') {
+    if (!authState.user) throw new Error('Please sign in first.');
+    if (!file || !file.type.startsWith('image/')) throw new Error('Please select an image.');
+    if (file.size > 7 * 1024 * 1024) throw new Error('Image must be under 7MB.');
+    const ext = (file.name.split('.').pop() || 'jpg').toLowerCase();
+    const path = `${authState.user.id}/products/${productIdHint}-${Date.now()}.${ext}`;
+    const { error } = await sb.storage.from('product-images').upload(path, file, { upsert:false });
+    if (error) throw error;
+    const { data } = sb.storage.from('product-images').getPublicUrl(path);
+    return data.publicUrl;
+  }
+
+  async function openSellerProductEditor(existing=null) {
+    if (!authState.user) { toast('Sign in first'); goto('account'); return; }
+    const editing = !!existing;
+    V4.productImageUrl = existing?.image_url || '';
+    const cats = (typeof CATEGORIES !== 'undefined' ? CATEGORIES : []).map(c =>
+      `<option value="${esc(c.id)}" ${existing?.category===c.id?'selected':''}>${esc(c.label)}</option>`).join('');
+
+    const el = modal(editing ? 'Edit Product' : 'Add Product', `
+      <div class="v4-grid2">
+        <div>
+          <div class="v4-field"><label>Product image</label>
+            <div class="v4-image-preview" id="v4ImgPreview">${V4.productImageUrl ? `<img src="${esc(V4.productImageUrl)}">` : '📦'}</div>
+            <input id="v4Img" type="file" accept="image/*">
+          </div>
+        </div>
+        <div>
+          <div class="v4-field"><label>Product name *</label><input id="v4Name" maxlength="140" value="${esc(existing?.name||'')}"></div>
+          <div class="v4-field"><label>Category *</label><select id="v4Cat">${cats}</select></div>
+          <div class="v4-grid2">
+            <div class="v4-field"><label>Price (BDT) *</label><input id="v4Price" type="number" min="0.01" step="0.01" value="${existing?.price ?? ''}"></div>
+            <div class="v4-field"><label>Old price (BDT)</label><input id="v4Was" type="number" min="0" step="0.01" value="${existing?.was_price ?? ''}"></div>
+          </div>
+          <div class="v4-field"><label>Stock</label><input id="v4Stock" type="number" min="0" step="1" value="${existing?.stock_quantity ?? 0}"></div>
+        </div>
+      </div>
+      <div class="v4-field"><label>Description</label><textarea id="v4Desc">${esc(existing?.description||'')}</textarea></div>
+      <p class="v4-note">Products are stored in Supabase. Seller approval is still controlled by the admin role/status.</p>
+      <button class="v4-primary" id="v4SaveProduct">${editing?'Update product':'Publish product'}</button>
+    `, el => {
+      el.querySelector('#v4Img').onchange = async e => {
+        const f = e.target.files[0];
+        if (!f) return;
+        try {
+          toast('Uploading image…');
+          V4.productImageUrl = await uploadProductImage(f, existing?.id || 'new');
+          el.querySelector('#v4ImgPreview').innerHTML = `<img src="${esc(V4.productImageUrl)}">`;
+          toast('Image uploaded');
+        } catch (err) { toast('Image upload failed: ' + err.message); }
+      };
+
+      el.querySelector('#v4SaveProduct').onclick = async () => {
+        const name = el.querySelector('#v4Name').value.trim();
+        const category = el.querySelector('#v4Cat').value;
+        const price = Number(el.querySelector('#v4Price').value);
+        const was = Number(el.querySelector('#v4Was').value) || Math.round(price * 1.4);
+        const stock = Math.max(0, Number(el.querySelector('#v4Stock').value) || 0);
+        const description = el.querySelector('#v4Desc').value.trim();
+        if (!name || !category || !(price > 0)) { toast('Name, category and price are required'); return; }
+
+        const payload = {
+          name, category, price, was_price: was, stock_quantity: stock,
+          description: description || null,
+          seller_id: authState.user.id,
+          image_url: V4.productImageUrl || null,
+          emoji: existing?.emoji || '🛍️',
+          bg_color: existing?.bg_color || '#FFF1E4',
+          color_group: existing?.color_group || 'warm',
+          rating: existing?.rating ?? 0,
+          sold_count: existing?.sold_count ?? '0'
+        };
+
+        el.querySelector('#v4SaveProduct').disabled = true;
+        const result = editing
+          ? await sb.from('products').update(payload).eq('id', existing.id).eq('seller_id', authState.user.id)
+          : await sb.from('products').insert(payload);
+
+        if (result.error) { toast('Save failed: ' + result.error.message); el.querySelector('#v4SaveProduct').disabled=false; return; }
+        closeModal();
+        await loadProductsFromDB();
+        if (typeof renderHomeLists === 'function') renderHomeLists();
+        await renderSeller();
+        toast(editing ? 'Product updated' : 'Product published');
+      };
+    });
+  }
+
+  function getCheckoutItems() {
+    const selected = state.cartSelected && state.cartSelected.size
+      ? [...state.cartSelected]
+      : Object.keys(state.cart);
+    return selected.map(id => {
+      const p = PRODUCTS.find(x => String(x.id) === String(id));
+      return p ? { p, qty: Number(state.cart[id] || 0) } : null;
+    }).filter(x => x && x.qty > 0);
+  }
+
+  async function openCheckout() {
+    if (!authState.user) { toast('Sign in to checkout'); goto('account'); return; }
+    const items = getCheckoutItems();
+    if (!items.length) { toast('Select at least one item'); return; }
+    if (!userAddresses.length) { toast('Add a shipping address first'); showAddressPicker(); return; }
+
+    if (!state.selectedAddressId) {
+      await loadAddressesFromDB();
+      if (!state.selectedAddressId) { showAddressPicker(); return; }
+    }
+    const address = userAddresses.find(a => String(a.id) === String(state.selectedAddressId));
+    if (!address) { showAddressPicker(); return; }
+
+    const total = items.reduce((s,x) => s + x.p.price*x.qty, 0);
+    V4.payment = 'cod';
+
+    modal('Checkout', `
+      <div style="background:#fff7f0;border:1px solid var(--line);border-radius:14px;padding:12px;margin-bottom:12px">
+        <strong>Shipping to</strong><div class="v4-note">${esc(address.full_name)} · ${esc(address.phone||'')}<br>${esc(addressRegionLine(address))}<br>${esc(address.address)}</div>
+      </div>
+      <div style="margin-bottom:12px">
+        ${items.map(x=>`<div style="display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid #eee">
+          <span>${esc(x.p.name)} × ${x.qty}</span><strong>${money(x.p.price*x.qty)}</strong>
+        </div>`).join('')}
+      </div>
+      <div class="v4-field"><label>Payment method</label>
+        <div class="v4-pay">
+          <button class="active" data-pay="cod">💵 Cash on Delivery</button>
+          <button data-pay="card">💳 Card / Online</button>
+          <button data-pay="wallet">📱 Wallet</button>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin:14px 0;font-size:1.05rem"><strong>Total</strong><strong>${money(total)}</strong></div>
+      <p class="v4-note">Online payment requires a payment gateway/backend webhook before real money can be captured. COD can be recorded immediately.</p>
+      <button class="v4-primary" id="v4PlaceOrder">Place order</button>
+    `, el => {
+      el.querySelectorAll('[data-pay]').forEach(b => b.onclick = () => {
+        V4.payment = b.dataset.pay;
+        el.querySelectorAll('[data-pay]').forEach(x=>x.classList.toggle('active',x===b));
+      });
+
+      el.querySelector('#v4PlaceOrder').onclick = async () => {
+        const btn = el.querySelector('#v4PlaceOrder');
+        btn.disabled = true; btn.textContent = 'Placing order…';
+        try {
+          const payload = {
+            user_id: authState.user.id,
+            total,
+            status: V4.payment === 'cod' ? 'pending' : 'pending',
+            payment_method: V4.payment,
+            payment_status: V4.payment === 'cod' ? 'unpaid' : 'pending',
+            shipping_address: {
+              label: address.label, full_name: address.full_name, phone: address.phone,
+              division: address.division, district: address.district, area: address.area,
+              address: address.address, landmark: address.landmark
+            }
+          };
+          const { data: order, error } = await sb.from('orders').insert(payload).select().single();
+          if (error) throw error;
+          const rows = items.map(x=>({order_id:order.id,product_id:x.p.id,quantity:x.qty,price_at_purchase:x.p.price}));
+          const { error:itemErr } = await sb.from('order_items').insert(rows);
+          if (itemErr) throw itemErr;
+
+          for (const x of items) {
+            delete state.cart[x.p.id];
+            if (authState.user) await removeCartItemFromDB(x.p.id);
+          }
+          state.cartSelected?.clear();
+          renderCartBadge(); renderCart();
+          closeModal();
+          toast(`Order #${order.id} placed successfully`);
+          goto('orders');
+        } catch (err) {
+          toast('Order failed: ' + err.message);
+          btn.disabled=false; btn.textContent='Place order';
+        }
+      };
+    });
+  }
+
+  async function renderSellerV4() {
+    if (!authState.user) return;
+    try {
+      // NOTE (fix): the old query filtered on 'products.seller_id' without ever
+      // embedding the products table, so Supabase/PostgREST rejected it and the
+      // empty catch{} swallowed the error — the "Open orders" stat was stuck on
+      // "—" forever. Embedding products!inner(seller_id) makes the filter valid,
+      // and we now count distinct orders that are still open instead of summing
+      // every item ever sold.
+      const { data: rows, error } = await sb.from('order_items')
+        .select('order_id, products!inner(seller_id), orders!inner(id,status)')
+        .eq('products.seller_id', authState.user.id);
+      if (error) throw error;
+      if ($('#sellerOrders')) {
+        const OPEN_STATUSES = ['pending', 'processing', 'shipped'];
+        const openOrderIds = new Set(
+          (rows || [])
+            .filter(r => OPEN_STATUSES.includes(r.orders?.status))
+            .map(r => r.order_id)
+        );
+        $('#sellerOrders').textContent = openOrderIds.size;
+      }
+    } catch (err) {
+      console.warn('renderSellerV4: could not load seller order stats:', err.message);
+    }
+  }
+
+  async function openAdminSettings() {
+    if (!authState.user) { goto('account'); return; }
+    const {data: profile} = await sb.from('profiles').select('role').eq('id',authState.user.id).single();
+    if (profile?.role !== 'admin') { toast('Admin access required'); return; }
+
+    const {data: settings} = await sb.from('platform_settings').select('*').eq('key','commission_rate').maybeSingle();
+    const rate = Number(settings?.value ?? V4.commissionRate);
+    V4.commissionRate = rate;
+
+    modal('Marketplace Settings', `
+      <div class="v4-field"><label>Platform commission (%)</label><input id="v4Commission" type="number" min="0" max="100" step="0.1" value="${rate}"></div>
+      <p class="v4-note">This setting is stored in Supabase. Actual seller payout calculations should be performed server-side/with an Edge Function before production payments.</p>
+      <button class="v4-primary" id="v4SaveCommission">Save settings</button>
+    `, el => {
+      el.querySelector('#v4SaveCommission').onclick = async () => {
+        const value = Math.min(100,Math.max(0,Number(el.querySelector('#v4Commission').value)));
+        const {error} = await sb.from('platform_settings').upsert({key:'commission_rate',value:String(value)});
+        if (error) { toast('Save failed: '+error.message); return; }
+        V4.commissionRate=value;
+        localStorage.setItem('orhano_commission_rate',String(value));
+        closeModal(); toast('Commission setting saved');
+      };
+    });
+  }
+
+  function patchProductImages() {
+    document.querySelectorAll('.pcard[data-id]').forEach(card => {
+      const id = Number(card.dataset.id);
+      const p = PRODUCTS.find(x=>x.id===id);
+      if (p?.image_url) {
+        const thumb = card.querySelector('.pcard-thumb');
+        if (thumb && !thumb.querySelector('img')) {
+          const img=document.createElement('img');
+          img.src=p.image_url; img.alt=p.name; img.style.cssText='width:100%;height:100%;object-fit:cover';
+          thumb.querySelectorAll(':scope > span:not(.discount), :scope > button.wish-btn').forEach(()=>{});
+          const oldEmoji = [...thumb.children].find(x=>x.tagName==='SPAN' && !x.classList.contains('discount'));
+          if (oldEmoji) oldEmoji.style.display='none';
+          thumb.insertBefore(img,thumb.firstChild);
+        }
+      }
+    });
+  }
+
+  // Override checkout with the stronger selected-item/payment flow.
+  window.checkout = openCheckout;
+
+  // Add editor to seller center's existing button.
+  document.getElementById('sellerAddBtn')?.addEventListener('click', e => {
+    e.stopImmediatePropagation();
+    openSellerProductEditor();
+  }, true);
+
+  // Expose useful controls for future ChatGPT/Claude edits.
+  window.ORHANO_V4 = {
+    openCheckout, openSellerProductEditor, openAdminSettings,
+    uploadProductImage, refresh: async()=>{ await loadProductsFromDB(); renderHomeLists(); }
+  };
+
+  // Refresh cards after the original render functions run.
+  const originalHome = window.renderHomeLists;
+  if (typeof originalHome === 'function') {
+    window.renderHomeLists = function() {
+      originalHome();
+      setTimeout(patchProductImages, 0);
+    };
+  }
+
+  // Patch product detail image when it exists.
+  const originalPdp = window.renderProductDetail;
+  if (typeof originalPdp === 'function') {
+    window.renderProductDetail = function(id) {
+      originalPdp(id);
+      const p = PRODUCTS.find(x=>x.id===id);
+      const box=document.querySelector('.pdp-image');
+      if (p?.image_url && box) box.innerHTML = `<button class="pdp-back" data-goto="home">←</button><img src="${esc(p.image_url)}" alt="${esc(p.name)}" style="width:100%;height:100%;object-fit:cover">`;
+    };
+  }
+
+  // Add a safe admin settings action if the admin panel has a settings button.
+  document.addEventListener('click', e => {
+    const b=e.target.closest('[data-v4-admin-settings]');
+    if (b) openAdminSettings();
+  });
+
+  // Cross-tab refresh for currency/session changes.
+  window.addEventListener('storage', e => {
+    if (e.key === 'orhano_currency' || e.key === 'orhano_language') {
+      if (typeof renderCurrencySelect==='function') renderCurrencySelect();
+      if (typeof refreshVisiblePrices==='function') refreshVisiblePrices();
+    }
+  });
+
+  // Try realtime order refresh when Supabase Realtime is enabled for orders.
+  try {
+    sb.channel('orhano-orders-v4')
+      .on('postgres_changes',{event:'*',schema:'public',table:'orders'},()=> {
+        if (state.view==='orders' && authState.user) renderOrders();
+        if (state.view==='admin' && authState.user) renderAdmin();
+      }).subscribe();
+  } catch (_) {}
+
+  // After startup, upgrade visible UI.
+  setTimeout(()=>{ try { patchProductImages(); renderSellerV4(); } catch(_){} }, 1800);
+})();
+</script>
+
 </body>
 </html>

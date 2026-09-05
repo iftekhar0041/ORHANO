@@ -981,6 +981,12 @@ async function loadProductsFromDB(){
     sellerId: row.seller_id || null,
     sellerName: null,
     description: row.description || null,
+    image_url: row.image_url || null,
+    image_urls: Array.isArray(row.image_urls) ? row.image_urls : (typeof row.image_urls === 'string' ? (()=>{ try{return JSON.parse(row.image_urls)}catch(_){return []} })() : (()=>{ 
+      const m=String(row.description||'').match(/\[\[ORHANO_IMAGES:(.*?)\]\]/);
+      if(!m) return row.image_url ? [row.image_url] : [];
+      try { const a=JSON.parse(decodeURIComponent(m[1])); return Array.isArray(a)?a.filter(Boolean):[]; } catch(_){ return row.image_url?[row.image_url]:[]; }
+    })()),
   }));
   FLASH_IDS = PRODUCTS.slice(0, 5).map(p => p.id);
   await attachSellerNames();
@@ -3688,25 +3694,14 @@ document.getElementById('settingsCurrencySelect')?.addEventListener('change', e 
 });
 
 $('#becomeSellerBtn').addEventListener('click', handleBecomeSeller);
-$('#sellerAddBtn').addEventListener('click', async () => {
-  if (!authState.user) { toast('Sign in to add products'); goto('account'); return; }
-  const name = prompt('New product name?');
-  if (!name) return;
-  const input = prompt('Price in BDT (base currency)?', '500');
-  const price = Number(input);
-  if (!price || price <= 0) { toast('Enter a valid price to add a product'); return; }
-  const description = prompt('Product description (what buyers will see on the product page)?', '');
-  const { error } = await sb.from('products').insert({
-    name, category: 'home', price, was_price: Math.round(price * 1.4),
-    emoji: '🆕', bg_color: '#EFE6D2', color_group: 'warm', rating: 4.0, sold_count: '0',
-    seller_id: authState.user.id, description: description || null
-  });
-  if (error) { toast('Add failed: ' + error.message); return; }
-  await renderSeller();
-  await loadProductsFromDB();
-  renderHomeLists();
-  toast('Product added and is now live');
-});
+/* NOTE (fix): removed the old prompt()-based "add product" handler that used
+   to be bound here. Event listeners on the SAME element fire in the order
+   they were registered, regardless of capture/bubble phase — so this old
+   handler (registered first) was ALWAYS running before the new V4 image-
+   upload modal (registered later, in the second <script> block). Every tap
+   on "+ Add product" popped up 3 native prompt() dialogs (name/price/
+   description) first, which is why publishing looked broken/confusing. The
+   real "Add Product" flow now lives entirely in openSellerProductEditor(). */
 
 $('#avatarEditBtn').addEventListener('click', () => {
   if (getPermissionPrefs().photos === false) {
@@ -3815,6 +3810,8 @@ init();
   const V4 = {
     payment: 'cod',
     productImageUrl: '',
+    productImageUrls: [],
+    productImageFiles: [],
     commissionRate: Number(localStorage.getItem('orhano_commission_rate') || 10),
   };
 
@@ -3848,28 +3845,64 @@ init();
   async function uploadProductImage(file, productIdHint='new') {
     if (!authState.user) throw new Error('Please sign in first.');
     if (!file || !file.type.startsWith('image/')) throw new Error('Please select an image.');
-    if (file.size > 7 * 1024 * 1024) throw new Error('Image must be under 7MB.');
-    const ext = (file.name.split('.').pop() || 'jpg').toLowerCase();
-    const path = `${authState.user.id}/products/${productIdHint}-${Date.now()}.${ext}`;
-    const { error } = await sb.storage.from('product-images').upload(path, file, { upsert:false });
+    if (file.size > 7 * 1024 * 1024) throw new Error('Each image must be under 7MB.');
+    const ext = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g,'') || 'jpg';
+    const safeHint = String(productIdHint || 'new').replace(/[^a-zA-Z0-9_-]/g,'_');
+    const path = `${authState.user.id}/products/${safeHint}-${Date.now()}-${Math.random().toString(36).slice(2,8)}.${ext}`;
+    const { error } = await sb.storage.from('product-images').upload(path, file, { upsert:false, contentType:file.type });
     if (error) throw error;
     const { data } = sb.storage.from('product-images').getPublicUrl(path);
+    if (!data?.publicUrl) throw new Error('Could not create public image URL.');
     return data.publicUrl;
+  }
+
+  async function saveProductRecord(payload, editing, existingId) {
+    let result = editing
+      ? await sb.from('products').update(payload).eq('id', existingId).eq('seller_id', authState.user.id).select().single()
+      : await sb.from('products').insert(payload).select().single();
+    if (!result.error) return result;
+
+    const msg = String(result.error.message || '').toLowerCase();
+    const schemaIssue = msg.includes('image_urls') || msg.includes('stock_quantity') || msg.includes('column') || msg.includes('schema cache');
+    if (!schemaIssue) return result;
+
+    // Older databases may not have image_urls. Preserve ALL uploaded URLs in
+    // a harmless description marker instead of silently throwing away images.
+    const fallback = {...payload};
+    delete fallback.image_urls;
+    if (msg.includes('stock_quantity') || msg.includes('column')) delete fallback.stock_quantity;
+    const urls = Array.isArray(payload.image_urls) ? payload.image_urls.filter(Boolean) : [];
+    if (urls.length) {
+      const base = String(fallback.description || '').replace(/\s*\[\[ORHANO_IMAGES:.*?\]\]\s*/g,' ').trim();
+      fallback.description = (base ? base + '\n\n' : '') + '[[ORHANO_IMAGES:' + encodeURIComponent(JSON.stringify(urls)) + ']]';
+    }
+    return editing
+      ? await sb.from('products').update(fallback).eq('id', existingId).eq('seller_id', authState.user.id).select().single()
+      : await sb.from('products').insert(fallback).select().single();
   }
 
   async function openSellerProductEditor(existing=null) {
     if (!authState.user) { toast('Sign in first'); goto('account'); return; }
     const editing = !!existing;
-    V4.productImageUrl = existing?.image_url || '';
+    let initialImages = existing ? (Array.isArray(existing.image_urls) ? existing.image_urls.filter(Boolean) : []) : [];
+    if (!initialImages.length && existing?.description) {
+      const mm=String(existing.description).match(/\[\[ORHANO_IMAGES:(.*?)\]\]/);
+      if(mm){ try { const aa=JSON.parse(decodeURIComponent(mm[1])); if(Array.isArray(aa)) initialImages=aa.filter(Boolean); } catch(_){} }
+    }
+    if (existing?.image_url && !initialImages.includes(existing.image_url)) initialImages.unshift(existing.image_url);
+    V4.productImageUrls = initialImages;
+    V4.productImageFiles = [];
+    V4.productImageUrl = initialImages[0] || '';
     const cats = (typeof CATEGORIES !== 'undefined' ? CATEGORIES : []).map(c =>
       `<option value="${esc(c.id)}" ${existing?.category===c.id?'selected':''}>${esc(c.label)}</option>`).join('');
 
     const el = modal(editing ? 'Edit Product' : 'Add Product', `
       <div class="v4-grid2">
         <div>
-          <div class="v4-field"><label>Product image</label>
-            <div class="v4-image-preview" id="v4ImgPreview">${V4.productImageUrl ? `<img src="${esc(V4.productImageUrl)}">` : '📦'}</div>
-            <input id="v4Img" type="file" accept="image/*">
+          <div class="v4-field"><label>Product images (up to 10)</label>
+            <div id="v4ImgPreview"></div>
+            <input id="v4Img" type="file" accept="image/*" multiple>
+            <div class="v4-note" id="v4ImgCount"></div>
           </div>
         </div>
         <div>
@@ -3883,21 +3916,57 @@ init();
         </div>
       </div>
       <div class="v4-field"><label>Description</label><textarea id="v4Desc">${esc(existing?.description||'')}</textarea></div>
-      <p class="v4-note">Products are stored in Supabase. Seller approval is still controlled by the admin role/status.</p>
+      <p class="v4-note">Select multiple photos at once. The first photo becomes the main product image.</p>
       <button class="v4-primary" id="v4SaveProduct">${editing?'Update product':'Publish product'}</button>
     `, el => {
-      el.querySelector('#v4Img').onchange = async e => {
-        const f = e.target.files[0];
-        if (!f) return;
-        try {
-          toast('Uploading image…');
-          V4.productImageUrl = await uploadProductImage(f, existing?.id || 'new');
-          el.querySelector('#v4ImgPreview').innerHTML = `<img src="${esc(V4.productImageUrl)}">`;
-          toast('Image uploaded');
-        } catch (err) { toast('Image upload failed: ' + err.message); }
+      // NOTE (fix): the old markup put every thumbnail inside .v4-image-preview,
+      // a fixed 1:1 square box with overflow:hidden — built for exactly one big
+      // image. With several thumbnails in a row that box clipped everything
+      // past the first one or two, which is why multi-image uploads looked
+      // like they weren't working. This renders its own wrapping grid instead.
+      function paintPreview() {
+        const box = el.querySelector('#v4ImgPreview');
+        const pendingUrls = V4.productImageFiles.map(f => URL.createObjectURL(f));
+        const urls = [...V4.productImageUrls, ...pendingUrls];
+        if (!urls.length) {
+          box.style.cssText = 'width:100%;aspect-ratio:1/1;border:1px dashed #ccc;border-radius:14px;display:flex;align-items:center;justify-content:center;background:#fafafa;font-size:3rem;';
+          box.innerHTML = '📦';
+        } else {
+          box.style.cssText = 'width:100%;min-height:88px;border:1px dashed #ccc;border-radius:14px;display:flex;flex-wrap:wrap;gap:8px;padding:8px;background:#fafafa;';
+          box.innerHTML = urls.map((u,i)=>`
+            <div style="position:relative;width:74px;height:74px;">
+              <img src="${esc(u)}" alt="Photo ${i+1}" style="width:100%;height:100%;object-fit:cover;border-radius:10px;border:1px solid var(--line);display:block;">
+              ${i===0 ? '<span style="position:absolute;bottom:2px;left:2px;background:rgba(0,0,0,.6);color:#fff;font-size:9px;padding:1px 5px;border-radius:6px;">Main</span>' : ''}
+              <button type="button" data-remove-v4-img="${i}" style="position:absolute;top:-6px;right:-6px;width:20px;height:20px;border-radius:50%;border:none;background:#D63A2E;color:#fff;font-size:12px;line-height:20px;text-align:center;padding:0;cursor:pointer;">×</button>
+            </div>`).join('');
+          box.querySelectorAll('[data-remove-v4-img]').forEach(btn => {
+            btn.onclick = () => {
+              const i = Number(btn.dataset.removeV4Img);
+              if (i < V4.productImageUrls.length) V4.productImageUrls.splice(i, 1);
+              else V4.productImageFiles.splice(i - V4.productImageUrls.length, 1);
+              paintPreview();
+            };
+          });
+        }
+        el.querySelector('#v4ImgCount').textContent = `${urls.length}/10 images selected`;
+      }
+      paintPreview();
+
+      el.querySelector('#v4Img').onchange = e => {
+        const files = [...(e.target.files || [])];
+        if (!files.length) return;
+        if (V4.productImageUrls.length + V4.productImageFiles.length + files.length > 10) {
+          toast('You can use up to 10 product images.');
+          e.target.value=''; return;
+        }
+        // Keep files locally until Publish. Show instant previews BEFORE upload.
+        V4.productImageFiles.push(...files);
+        paintPreview();
+        e.target.value='';
       };
 
       el.querySelector('#v4SaveProduct').onclick = async () => {
+        const btn=el.querySelector('#v4SaveProduct');
         const name = el.querySelector('#v4Name').value.trim();
         const category = el.querySelector('#v4Cat').value;
         const price = Number(el.querySelector('#v4Price').value);
@@ -3905,12 +3974,43 @@ init();
         const stock = Math.max(0, Number(el.querySelector('#v4Stock').value) || 0);
         const description = el.querySelector('#v4Desc').value.trim();
         if (!name || !category || !(price > 0)) { toast('Name, category and price are required'); return; }
+        // NOTE (fix): this used to check only V4.productImageUrls (already-
+        // uploaded images), but newly selected photos sit in
+        // V4.productImageFiles until the upload loop below runs — so on every
+        // brand-new product this check fired first and blocked publishing
+        // with "Add at least one product photo" even when photos were picked.
+        if (!V4.productImageUrls.length && !V4.productImageFiles.length) { toast('Add at least one product photo'); return; }
+
+        // Upload every selected file only when the user actually publishes.
+        if (V4.productImageFiles.length) {
+          btn.textContent = 'Uploading images…';
+          try {
+            for (const f of V4.productImageFiles) {
+              const url = await uploadProductImage(f, existing?.id || 'new');
+              V4.productImageUrls.push(url);
+            }
+            V4.productImageFiles = [];
+            V4.productImageUrl = V4.productImageUrls[0] || '';
+          } catch (uploadErr) {
+            toast('Image upload failed: ' + uploadErr.message);
+            btn.disabled=false;
+            btn.textContent=editing?'Update product':'Publish product';
+            return;
+          }
+        }
+        if (!V4.productImageUrls.length) {
+          toast('Please select at least one product image.');
+          btn.disabled=false;
+          btn.textContent=editing?'Update product':'Publish product';
+          return;
+        }
 
         const payload = {
           name, category, price, was_price: was, stock_quantity: stock,
           description: description || null,
           seller_id: authState.user.id,
-          image_url: V4.productImageUrl || null,
+          image_url: V4.productImageUrls[0] || null,
+          image_urls: V4.productImageUrls,
           emoji: existing?.emoji || '🛍️',
           bg_color: existing?.bg_color || '#FFF1E4',
           color_group: existing?.color_group || 'warm',
@@ -3918,17 +4018,26 @@ init();
           sold_count: existing?.sold_count ?? '0'
         };
 
-        el.querySelector('#v4SaveProduct').disabled = true;
-        const result = editing
-          ? await sb.from('products').update(payload).eq('id', existing.id).eq('seller_id', authState.user.id)
-          : await sb.from('products').insert(payload);
-
-        if (result.error) { toast('Save failed: ' + result.error.message); el.querySelector('#v4SaveProduct').disabled=false; return; }
-        closeModal();
-        await loadProductsFromDB();
-        if (typeof renderHomeLists === 'function') renderHomeLists();
-        await renderSeller();
-        toast(editing ? 'Product updated' : 'Product published');
+        btn.disabled=true; btn.textContent=editing?'Updating…':'Publishing…';
+        try {
+          const result = await saveProductRecord(payload, editing, existing?.id);
+          if (result.error) {
+            console.error('Product save failed:', result.error);
+            const reason=result.error.message || 'Unknown database error';
+            toast('Publish failed: ' + reason);
+            btn.disabled=false; btn.textContent=editing?'Update product':'Publish product';
+            return;
+          }
+          closeModal();
+          await loadProductsFromDB();
+          if (typeof renderHomeLists === 'function') renderHomeLists();
+          await renderSeller();
+          toast(editing ? 'Product updated successfully' : 'Product published successfully');
+        } catch(err) {
+          console.error('Product publish exception:', err);
+          toast('Publish failed: ' + (err.message || err));
+          btn.disabled=false; btn.textContent=editing?'Update product':'Publish product';
+        }
       };
     });
   }
@@ -4096,11 +4205,10 @@ init();
   // Override checkout with the stronger selected-item/payment flow.
   window.checkout = openCheckout;
 
-  // Add editor to seller center's existing button.
-  document.getElementById('sellerAddBtn')?.addEventListener('click', e => {
-    e.stopImmediatePropagation();
+  // Wires up the Seller Center's "+ Add product" button.
+  document.getElementById('sellerAddBtn')?.addEventListener('click', () => {
     openSellerProductEditor();
-  }, true);
+  });
 
   // Expose useful controls for future ChatGPT/Claude edits.
   window.ORHANO_V4 = {

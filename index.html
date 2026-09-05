@@ -967,27 +967,33 @@ async function loadProductsFromDB(){
       visibleData = data.filter(row => !row.seller_id || !suspendedIds.has(row.seller_id));
     }
   } catch (_) { /* if this lookup fails for any reason, fall back to showing everything */ }
-  PRODUCTS = visibleData.map(row => ({
-    id: row.id,
-    name: row.name,
-    cat: row.category,
-    price: Number(row.price),
-    was: Number(row.was_price ?? row.price),
-    emoji: row.emoji,
-    bg: row.bg_color,
-    colorGroup: row.color_group,
-    rating: Number(row.rating),
-    sold: row.sold_count,
-    sellerId: row.seller_id || null,
-    sellerName: null,
-    description: row.description || null,
-    image_url: row.image_url || null,
-    image_urls: Array.isArray(row.image_urls) ? row.image_urls : (typeof row.image_urls === 'string' ? (()=>{ try{return JSON.parse(row.image_urls)}catch(_){return []} })() : (()=>{ 
-      const m=String(row.description||'').match(/\[\[ORHANO_IMAGES:(.*?)\]\]/);
-      if(!m) return row.image_url ? [row.image_url] : [];
-      try { const a=JSON.parse(decodeURIComponent(m[1])); return Array.isArray(a)?a.filter(Boolean):[]; } catch(_){ return row.image_url?[row.image_url]:[]; }
-    })()),
-  }));
+  PRODUCTS = visibleData.map(row => {
+    const imageUrls = Array.isArray(row.image_urls) ? row.image_urls.filter(Boolean)
+      : (typeof row.image_urls === 'string' ? (()=>{ try{return JSON.parse(row.image_urls)}catch(_){return []} })()
+      : (()=>{
+        const m=String(row.description||'').match(/\[\[ORHANO_IMAGES:(.*?)\]\]/);
+        if(!m) return row.image_url ? [row.image_url] : [];
+        try { const a=JSON.parse(decodeURIComponent(m[1])); return Array.isArray(a)?a.filter(Boolean):[]; } catch(_){ return row.image_url?[row.image_url]:[]; }
+      })());
+    if (row.image_url && !imageUrls.includes(row.image_url)) imageUrls.unshift(row.image_url);
+    return {
+      id: row.id,
+      name: row.name,
+      cat: row.category,
+      price: Number(row.price),
+      was: Number(row.was_price ?? row.price),
+      emoji: row.emoji,
+      bg: row.bg_color,
+      colorGroup: row.color_group,
+      rating: Number(row.rating),
+      sold: row.sold_count,
+      sellerId: row.seller_id || null,
+      sellerName: null,
+      description: row.description || null,
+      imageUrl: imageUrls[0] || null,
+      imageUrls,
+    };
+  });
   FLASH_IDS = PRODUCTS.slice(0, 5).map(p => p.id);
   await attachSellerNames();
   return true;
@@ -1141,7 +1147,9 @@ function productCard(p){
     <div class="pcard-thumb" style="background:${p.bg}">
       <span class="discount">-${pct}%</span>
       <button class="wish-btn ${wished ? 'active' : ''}" data-wish="${p.id}" title="Save item" aria-label="Save item">${wished ? '♥' : '♡'}</button>
-      <span style="font-size:2.2rem">${p.emoji}</span>
+      ${p.imageUrl
+        ? `<img src="${escapeHtml(p.imageUrl)}" alt="${escapeHtml(p.name)}" loading="lazy" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;">`
+        : `<span style="font-size:2.2rem">${p.emoji}</span>`}
     </div>
     <div class="pcard-body">
       <div class="pcard-name">${p.name}</div>
@@ -2246,7 +2254,7 @@ async function renderSeller(){
   $('#sellerOrders').textContent = '—';
   $('#sellerList').innerHTML = sellerProducts.length ? sellerProducts.map(p => `
     <div class="seller-row">
-      <div class="cart-thumb" style="background:${p.bg_color}">${p.emoji}</div>
+      <div class="cart-thumb" style="background:${p.bg_color};position:relative;overflow:hidden;">${p.image_url ? `<img src="${escapeHtml(p.image_url)}" alt="${escapeHtml(p.name)}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;">` : p.emoji}</div>
       <div class="pcard-name">${p.name}<br><span class="pcard-meta">${money(Number(p.price))}</span></div>
       <button class="mini-btn" data-seller-edit="${p.id}">Edit price</button>
       <button class="mini-btn danger" data-seller-delete="${p.id}">Delete</button>
@@ -4184,24 +4192,6 @@ init();
     });
   }
 
-  function patchProductImages() {
-    document.querySelectorAll('.pcard[data-id]').forEach(card => {
-      const id = Number(card.dataset.id);
-      const p = PRODUCTS.find(x=>x.id===id);
-      if (p?.image_url) {
-        const thumb = card.querySelector('.pcard-thumb');
-        if (thumb && !thumb.querySelector('img')) {
-          const img=document.createElement('img');
-          img.src=p.image_url; img.alt=p.name; img.style.cssText='width:100%;height:100%;object-fit:cover';
-          thumb.querySelectorAll(':scope > span:not(.discount), :scope > button.wish-btn').forEach(()=>{});
-          const oldEmoji = [...thumb.children].find(x=>x.tagName==='SPAN' && !x.classList.contains('discount'));
-          if (oldEmoji) oldEmoji.style.display='none';
-          thumb.insertBefore(img,thumb.firstChild);
-        }
-      }
-    });
-  }
-
   // Override checkout with the stronger selected-item/payment flow.
   window.checkout = openCheckout;
 
@@ -4216,23 +4206,44 @@ init();
     uploadProductImage, refresh: async()=>{ await loadProductsFromDB(); renderHomeLists(); }
   };
 
-  // Refresh cards after the original render functions run.
-  const originalHome = window.renderHomeLists;
-  if (typeof originalHome === 'function') {
-    window.renderHomeLists = function() {
-      originalHome();
-      setTimeout(patchProductImages, 0);
-    };
-  }
+  // NOTE (fix): product photos now render directly inside productCard() in
+  // the main script, so every view that builds cards (home, search,
+  // category, seller list, wishlist) shows the image immediately — no more
+  // fragile after-the-fact DOM patching that only ever ran after
+  // renderHomeLists() and missed every other screen.
 
-  // Patch product detail image when it exists.
+  // Swipeable multi-image gallery on the product detail page. Real <img>
+  // tags (not CSS backgrounds) so a long-press still lets a customer save
+  // the photo, same as any normal web image.
   const originalPdp = window.renderProductDetail;
   if (typeof originalPdp === 'function') {
     window.renderProductDetail = function(id) {
       originalPdp(id);
       const p = PRODUCTS.find(x=>x.id===id);
-      const box=document.querySelector('.pdp-image');
-      if (p?.image_url && box) box.innerHTML = `<button class="pdp-back" data-goto="home">←</button><img src="${esc(p.image_url)}" alt="${esc(p.name)}" style="width:100%;height:100%;object-fit:cover">`;
+      const box = document.querySelector('.pdp-image');
+      const imgs = (p?.imageUrls && p.imageUrls.length) ? p.imageUrls : (p?.imageUrl ? [p.imageUrl] : []);
+      if (!box || !imgs.length) return;
+      const dotsHtml = imgs.length > 1
+        ? `<div id="pdpDots" style="position:absolute;bottom:10px;left:0;right:0;display:flex;justify-content:center;gap:6px;z-index:2;">${imgs.map((_,i)=>`<span data-pdp-dot="${i}" style="width:6px;height:6px;border-radius:50%;background:${i===0?'#fff':'rgba(255,255,255,.5)'};box-shadow:0 0 2px rgba(0,0,0,.4);"></span>`).join('')}</div>`
+        : '';
+      box.innerHTML = `
+        <button class="pdp-back" data-goto="home">←</button>
+        <div id="pdpSwipe" style="width:100%;height:100%;display:flex;overflow-x:auto;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch;">
+          ${imgs.map((u,i)=>`<img src="${esc(u)}" alt="${esc(p.name)} photo ${i+1}" style="flex:0 0 100%;width:100%;height:100%;object-fit:cover;scroll-snap-align:center;">`).join('')}
+        </div>
+        ${dotsHtml}`;
+      if (imgs.length > 1) {
+        const swipe = box.querySelector('#pdpSwipe');
+        let raf = null;
+        swipe.addEventListener('scroll', () => {
+          if (raf) return;
+          raf = requestAnimationFrame(() => {
+            raf = null;
+            const idx = Math.round(swipe.scrollLeft / swipe.clientWidth);
+            box.querySelectorAll('[data-pdp-dot]').forEach((d,i) => { d.style.background = i===idx ? '#fff' : 'rgba(255,255,255,.5)'; });
+          });
+        });
+      }
     };
   }
 
@@ -4260,7 +4271,7 @@ init();
   } catch (_) {}
 
   // After startup, upgrade visible UI.
-  setTimeout(()=>{ try { patchProductImages(); renderSellerV4(); } catch(_){} }, 1800);
+  setTimeout(()=>{ try { renderSellerV4(); } catch(_){} }, 1800);
 })();
 </script>
 

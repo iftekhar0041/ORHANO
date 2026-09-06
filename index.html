@@ -1148,7 +1148,7 @@ function productCard(p){
       <span class="discount">-${pct}%</span>
       <button class="wish-btn ${wished ? 'active' : ''}" data-wish="${p.id}" title="Save item" aria-label="Save item">${wished ? '♥' : '♡'}</button>
       ${p.imageUrl
-        ? `<img src="${escapeHtml(p.imageUrl)}" alt="${escapeHtml(p.name)}" loading="lazy" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;">`
+        ? `<img src="${escapeHtml(p.imageUrl)}" alt="${escapeHtml(p.name)}" loading="lazy" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;-webkit-touch-callout:none;">`
         : `<span style="font-size:2.2rem">${p.emoji}</span>`}
     </div>
     <div class="pcard-body">
@@ -3815,6 +3815,17 @@ init();
    feedback persistence, and realtime refresh hooks.
 */
 (() => {
+  // Shared full-screen tap-to-zoom viewer, used by both the seller's photo
+  // preview and the customer-facing product gallery below.
+  function showImageLightbox(url) {
+    const ov = document.createElement('div');
+    ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:99999;display:flex;align-items:center;justify-content:center;';
+    ov.innerHTML = `<img src="${String(url).replace(/"/g,'&quot;')}" style="max-width:94vw;max-height:94vh;object-fit:contain;border-radius:6px;-webkit-touch-callout:none;">
+      <button type="button" aria-label="Close" style="position:absolute;top:16px;right:16px;width:36px;height:36px;border-radius:50%;border:none;background:rgba(255,255,255,.92);font-size:1.2rem;line-height:36px;text-align:center;padding:0;">×</button>`;
+    ov.addEventListener('click', () => ov.remove());
+    document.body.appendChild(ov);
+  }
+
   const V4 = {
     payment: 'cod',
     productImageUrl: '',
@@ -3924,9 +3935,24 @@ init();
         </div>
       </div>
       <div class="v4-field"><label>Description</label><textarea id="v4Desc">${esc(existing?.description||'')}</textarea></div>
-      <p class="v4-note">Select multiple photos at once. The first photo becomes the main product image.</p>
+      <p class="v4-note">Select multiple photos at once. The first photo becomes the main product image. Tap a photo to preview it larger.</p>
+      <p id="v4Error" style="display:none;color:#D63A2E;font-size:0.82rem;background:#FDEDEB;border:1px solid #F3C3BD;border-radius:8px;padding:8px 10px;margin:6px 0;"></p>
       <button class="v4-primary" id="v4SaveProduct">${editing?'Update product':'Publish product'}</button>
     `, el => {
+      function showError(msg) {
+        const box = el.querySelector('#v4Error');
+        box.textContent = msg;
+        box.style.display = 'block';
+        toast(msg.length > 60 ? 'Publish failed — see the red message below' : msg);
+      }
+      function clearError() {
+        const box = el.querySelector('#v4Error');
+        box.style.display = 'none';
+        box.textContent = '';
+      }
+      // Full-screen tap-to-zoom for any preview thumbnail, so a seller can
+      // check a photo closely before publishing.
+      const openImageLightbox = showImageLightbox;
       // NOTE (fix): the old markup put every thumbnail inside .v4-image-preview,
       // a fixed 1:1 square box with overflow:hidden — built for exactly one big
       // image. With several thumbnails in a row that box clipped everything
@@ -3943,10 +3969,13 @@ init();
           box.style.cssText = 'width:100%;min-height:88px;border:1px dashed #ccc;border-radius:14px;display:flex;flex-wrap:wrap;gap:8px;padding:8px;background:#fafafa;';
           box.innerHTML = urls.map((u,i)=>`
             <div style="position:relative;width:74px;height:74px;">
-              <img src="${esc(u)}" alt="Photo ${i+1}" style="width:100%;height:100%;object-fit:cover;border-radius:10px;border:1px solid var(--line);display:block;">
+              <img src="${esc(u)}" alt="Photo ${i+1}" data-preview-img="${i}" style="width:100%;height:100%;object-fit:cover;border-radius:10px;border:1px solid var(--line);display:block;cursor:zoom-in;">
               ${i===0 ? '<span style="position:absolute;bottom:2px;left:2px;background:rgba(0,0,0,.6);color:#fff;font-size:9px;padding:1px 5px;border-radius:6px;">Main</span>' : ''}
               <button type="button" data-remove-v4-img="${i}" style="position:absolute;top:-6px;right:-6px;width:20px;height:20px;border-radius:50%;border:none;background:#D63A2E;color:#fff;font-size:12px;line-height:20px;text-align:center;padding:0;cursor:pointer;">×</button>
             </div>`).join('');
+          box.querySelectorAll('[data-preview-img]').forEach(img => {
+            img.onclick = () => openImageLightbox(urls[Number(img.dataset.previewImg)]);
+          });
           box.querySelectorAll('[data-remove-v4-img]').forEach(btn => {
             btn.onclick = () => {
               const i = Number(btn.dataset.removeV4Img);
@@ -3975,19 +4004,20 @@ init();
 
       el.querySelector('#v4SaveProduct').onclick = async () => {
         const btn=el.querySelector('#v4SaveProduct');
+        clearError();
         const name = el.querySelector('#v4Name').value.trim();
         const category = el.querySelector('#v4Cat').value;
         const price = Number(el.querySelector('#v4Price').value);
         const was = Number(el.querySelector('#v4Was').value) || Math.round(price * 1.4);
         const stock = Math.max(0, Number(el.querySelector('#v4Stock').value) || 0);
         const description = el.querySelector('#v4Desc').value.trim();
-        if (!name || !category || !(price > 0)) { toast('Name, category and price are required'); return; }
+        if (!name || !category || !(price > 0)) { showError('Name, category and price are required.'); return; }
         // NOTE (fix): this used to check only V4.productImageUrls (already-
         // uploaded images), but newly selected photos sit in
         // V4.productImageFiles until the upload loop below runs — so on every
         // brand-new product this check fired first and blocked publishing
         // with "Add at least one product photo" even when photos were picked.
-        if (!V4.productImageUrls.length && !V4.productImageFiles.length) { toast('Add at least one product photo'); return; }
+        if (!V4.productImageUrls.length && !V4.productImageFiles.length) { showError('Add at least one product photo.'); return; }
 
         // Upload every selected file only when the user actually publishes.
         if (V4.productImageFiles.length) {
@@ -4000,14 +4030,22 @@ init();
             V4.productImageFiles = [];
             V4.productImageUrl = V4.productImageUrls[0] || '';
           } catch (uploadErr) {
-            toast('Image upload failed: ' + uploadErr.message);
+            let msg = uploadErr.message || String(uploadErr);
+            if (/bucket not found/i.test(msg)) {
+              msg = 'Image upload failed: the "product-images" storage bucket does not exist in Supabase yet. Create a public bucket named exactly "product-images" in Supabase → Storage, then try again.';
+            } else if (/row-level security|not authorized|permission/i.test(msg)) {
+              msg = 'Image upload failed: Supabase Storage is blocking this upload (RLS policy). The "product-images" bucket needs a policy that lets signed-in users upload to their own folder.';
+            } else {
+              msg = 'Image upload failed: ' + msg;
+            }
+            showError(msg);
             btn.disabled=false;
             btn.textContent=editing?'Update product':'Publish product';
             return;
           }
         }
         if (!V4.productImageUrls.length) {
-          toast('Please select at least one product image.');
+          showError('Please select at least one product image.');
           btn.disabled=false;
           btn.textContent=editing?'Update product':'Publish product';
           return;
@@ -4031,8 +4069,11 @@ init();
           const result = await saveProductRecord(payload, editing, existing?.id);
           if (result.error) {
             console.error('Product save failed:', result.error);
-            const reason=result.error.message || 'Unknown database error';
-            toast('Publish failed: ' + reason);
+            let reason = result.error.message || 'Unknown database error';
+            if (/row-level security|permission denied|not authorized/i.test(reason)) {
+              reason += ' — Supabase RLS is blocking this insert/update. Check the "products" table policies allow an approved seller to write rows where seller_id = auth.uid().';
+            }
+            showError('Publish failed: ' + reason);
             btn.disabled=false; btn.textContent=editing?'Update product':'Publish product';
             return;
           }
@@ -4043,7 +4084,7 @@ init();
           toast(editing ? 'Product updated successfully' : 'Product published successfully');
         } catch(err) {
           console.error('Product publish exception:', err);
-          toast('Publish failed: ' + (err.message || err));
+          showError('Publish failed: ' + (err.message || err));
           btn.disabled=false; btn.textContent=editing?'Update product':'Publish product';
         }
       };
@@ -4229,9 +4270,19 @@ init();
       box.innerHTML = `
         <button class="pdp-back" data-goto="home">←</button>
         <div id="pdpSwipe" style="width:100%;height:100%;display:flex;overflow-x:auto;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch;">
-          ${imgs.map((u,i)=>`<img src="${esc(u)}" alt="${esc(p.name)} photo ${i+1}" style="flex:0 0 100%;width:100%;height:100%;object-fit:cover;scroll-snap-align:center;">`).join('')}
+          ${imgs.map((u,i)=>`<img src="${esc(u)}" alt="${esc(p.name)} photo ${i+1}" data-pdp-img="${i}" style="flex:0 0 100%;width:100%;height:100%;object-fit:cover;scroll-snap-align:center;cursor:zoom-in;-webkit-touch-callout:none;">`).join('')}
         </div>
         ${dotsHtml}`;
+      // Tap (not swipe) opens the photo full-screen. We track pointer
+      // movement so a drag-to-swipe gesture never accidentally triggers zoom.
+      box.querySelectorAll('[data-pdp-img]').forEach(imgEl => {
+        let startX = 0, startY = 0, moved = false;
+        imgEl.addEventListener('pointerdown', e => { startX = e.clientX; startY = e.clientY; moved = false; });
+        imgEl.addEventListener('pointermove', e => {
+          if (Math.abs(e.clientX - startX) > 8 || Math.abs(e.clientY - startY) > 8) moved = true;
+        });
+        imgEl.addEventListener('pointerup', () => { if (!moved) showImageLightbox(imgs[Number(imgEl.dataset.pdpImg)]); });
+      });
       if (imgs.length > 1) {
         const swipe = box.querySelector('#pdpSwipe');
         let raf = null;

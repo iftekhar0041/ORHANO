@@ -400,6 +400,7 @@ button{font-family:inherit;cursor:pointer;}
   flex-shrink:0; width:38px;height:38px;border-radius:50%;border:none;
   background:var(--teal); color:#fff; display:flex; align-items:center; justify-content:center;
 }
+.chat-send-btn:disabled{opacity:.5;}
 .chat-conv-row{display:flex; gap:10px; align-items:center; padding:12px 16px; border-bottom:1px solid var(--line); cursor:pointer;}
 .chat-conv-unread{background:var(--teal); color:#fff; border-radius:999px; font-size:0.68rem; font-weight:700; padding:2px 7px; min-width:18px; text-align:center;}
 
@@ -1721,8 +1722,17 @@ async function openOrCreateConversation(sellerId, productId){
   if (!sellerId) { toast('Chat is not available for this item'); return; }
   if (sellerId === authState.user.id) { toast("You can't message your own shop"); return; }
 
-  const { data: existing } = await sb.from('conversations')
+  const { data: existing, error: findErr } = await sb.from('conversations')
     .select('id').eq('buyer_id', authState.user.id).eq('seller_id', sellerId).maybeSingle();
+
+  if (findErr) {
+    toast(/relation|does not exist|schema cache/i.test(findErr.message || '')
+      ? "Chat isn't set up on this database yet — see the report for the required SQL."
+      : /permission|policy|rls/i.test(findErr.message || '')
+        ? 'You do not have permission to start this chat.'
+        : 'Could not open chat: ' + findErr.message);
+    return;
+  }
 
   let conversationId = existing?.id;
   if (!conversationId) {
@@ -1739,7 +1749,9 @@ async function openOrCreateConversation(sellerId, productId){
       } else {
         toast(/relation|does not exist|schema cache/i.test(insErr.message || '')
           ? "Chat isn't set up on this database yet — see the report for the required SQL."
-          : 'Could not start chat: ' + insErr.message);
+          : /permission|policy|rls/i.test(insErr.message || '')
+            ? 'You do not have permission to start this chat.'
+            : 'Could not start chat: ' + insErr.message);
         return;
       }
     } else {
@@ -1765,7 +1777,9 @@ async function renderChatThread(conversationId){
   if (convErr || !conv) {
     wrap.innerHTML = /relation|does not exist|schema cache/i.test(convErr?.message || '')
       ? `<p class="page-title">Chat isn't set up on this database yet.</p><button class="btn-primary" style="margin:0 16px;" data-goto="messages">Back</button>`
-      : `<p class="page-title">Chat not found.</p><button class="btn-primary" style="margin:0 16px;" data-goto="messages">Back to messages</button>`;
+      : /permission|policy|rls/i.test(convErr?.message || '')
+        ? `<p class="page-title">You don't have permission to view this chat.</p><button class="btn-primary" style="margin:0 16px;" data-goto="messages">Back to messages</button>`
+        : `<p class="page-title">Chat not found.</p><button class="btn-primary" style="margin:0 16px;" data-goto="messages">Back to messages</button>`;
     return;
   }
 
@@ -1782,10 +1796,16 @@ async function renderChatThread(conversationId){
   const otherId = isBuyer ? conv.seller_id : conv.buyer_id;
   const otherName = other?.full_name || 'User';
 
-  const { data: messages } = await sb.from('messages')
+  const { data: messages, error: msgListErr } = await sb.from('messages')
     .select('id, sender_id, body, created_at, read_at')
     .eq('conversation_id', conversationId)
     .order('created_at', { ascending: true });
+
+  if (msgListErr) {
+    wrap.innerHTML = `<div class="chat-thread-head"><button class="chat-thread-back" data-goto="messages" aria-label="Back">←</button><strong style="font-size:0.9rem;">${escapeHtml(otherName)}</strong></div>
+      <p style="padding:30px 16px;text-align:center;color:var(--brick);font-size:0.85rem;">${/permission|policy|rls/i.test(msgListErr.message) ? 'You do not have permission to view these messages.' : 'Could not load messages: ' + escapeHtml(msgListErr.message)}</p>`;
+    return;
+  }
 
   wrap.innerHTML = `
     <div class="chat-thread-head">
@@ -1827,28 +1847,59 @@ function chatBubbleHtml(m, myId){
   return `<div class="chat-bubble ${mine ? 'mine' : 'theirs'}" data-msg-id="${m.id}">${escapeHtml(m.body)}<span class="chat-bubble-time">${time}${mine ? (m.read_at ? ' · Seen' : ' · Sent') : ''}</span></div>`;
 }
 
+let sendingChatMessage = false;
 async function sendChatMessage(){
+  if (sendingChatMessage) return; // guard against double-tap / double-Enter
   const input = $('#chatMessageInput');
+  const sendBtn = $('#chatSendBtn');
   if (!input) return;
   const text = input.value.trim();
   const conversationId = state.currentConversationId;
-  if (!text || !conversationId || !authState.user) return;
-  input.value = '';
-  const { error } = await sb.from('messages').insert({
-    conversation_id: conversationId, sender_id: authState.user.id, body: text
-  });
+  if (!authState.user) { toast('Sign in to send messages'); return; }
+  if (!text) return; // never send an empty message
+  if (!conversationId) { toast('This chat is not available'); return; }
+
+  sendingChatMessage = true;
+  if (sendBtn) sendBtn.disabled = true;
+
+  const { data: inserted, error } = await sb.from('messages').insert({
+    conversation_id: conversationId,
+    sender_id: authState.user.id, // always the authenticated user — never settable by the caller
+    body: text
+  }).select('id, sender_id, body, created_at, read_at').single();
+
   if (error) {
     toast(/relation|does not exist|schema cache/i.test(error.message)
       ? "Chat isn't set up on this database yet — see the report for the required SQL."
-      : 'Could not send: ' + error.message);
-    input.value = text;
+      : /permission|policy|rls/i.test(error.message)
+        ? 'You do not have permission to send in this conversation.'
+        : 'Could not send: ' + error.message);
+    sendingChatMessage = false;
+    if (sendBtn) sendBtn.disabled = false;
     return;
   }
-  // Realtime (below) appends the bubble for both sender and recipient, so
-  // there's no separate optimistic-append step here to avoid duplicates.
+
+  // Clear the input only now that the send actually succeeded.
+  input.value = '';
+
+  // Show the sent message immediately — this does not depend on Realtime,
+  // which is intentionally not used for this step (see report, Task 6D).
+  const body = $('#chatThreadBody');
+  if (body && state.view === 'chatThread' && state.currentConversationId === conversationId) {
+    const empty = body.querySelector('p.muted');
+    if (empty) empty.remove();
+    if (!body.querySelector(`[data-msg-id="${inserted.id}"]`)) {
+      body.insertAdjacentHTML('beforeend', chatBubbleHtml(inserted, authState.user.id));
+      body.scrollTop = body.scrollHeight;
+    }
+  }
+
   await sb.from('conversations').update({
-    last_message_at: new Date().toISOString(), last_message_text: text.slice(0, 120)
+    last_message_at: inserted.created_at, last_message_text: text.slice(0, 120)
   }).eq('id', conversationId);
+
+  sendingChatMessage = false;
+  if (sendBtn) sendBtn.disabled = false;
 }
 
 async function markConversationRead(conversationId){
@@ -1865,6 +1916,7 @@ function subscribeToChatThread(conversationId){
       if (state.view !== 'chatThread' || state.currentConversationId !== conversationId) return;
       const body = $('#chatThreadBody');
       if (!body) return;
+      if (body.querySelector(`[data-msg-id="${payload.new.id}"]`)) return; // already shown (e.g. by sendChatMessage)
       const empty = body.querySelector('p.muted');
       if (empty) empty.remove();
       body.insertAdjacentHTML('beforeend', chatBubbleHtml(payload.new, authState.user.id));
@@ -1906,7 +1958,9 @@ async function renderConversationList(){
   if (error) {
     list.innerHTML = /relation|does not exist|schema cache/i.test(error.message)
       ? `<p style="padding:16px;color:var(--ink-soft);font-size:0.85rem;">Chat isn't set up on this database yet.</p>`
-      : `<p style="padding:16px;color:var(--brick);font-size:0.85rem;">Could not load chats: ${escapeHtml(error.message)}</p>`;
+      : /permission|policy|rls/i.test(error.message)
+        ? `<p style="padding:16px;color:var(--brick);font-size:0.85rem;">You don't have permission to view these conversations.</p>`
+        : `<p style="padding:16px;color:var(--brick);font-size:0.85rem;">Could not load chats: ${escapeHtml(error.message)}</p>`;
     return;
   }
   if (!data || !data.length) {
@@ -2517,6 +2571,7 @@ function showView(view, productId){
   if (view === 'orders') renderOrders();
   if (view === 'saved') renderSaved();
   if (view === 'shops') renderShops();
+  if (view === 'messages') renderMessages();
   if (view === 'product') renderProductDetail(productId !== undefined ? productId : state.currentProductId);
   if (view === 'store') renderStorePage(productId !== undefined ? productId : state.currentShopId);
   if (view === 'chatThread') renderChatThread(productId !== undefined ? productId : state.currentConversationId);
@@ -5175,7 +5230,6 @@ init();
     state.msgTab = 'chat';
     goto('messages');
     document.querySelectorAll('.tab[data-mtab]').forEach(t => t.classList.toggle('active', t.dataset.mtab === 'chat'));
-    renderMessages();
   });
 
   document.getElementById('sellerEditShopInfoBtn')?.addEventListener('click', async () => {

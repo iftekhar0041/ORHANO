@@ -1715,7 +1715,6 @@ async function submitSellerReply(reviewId){
 }
 
 /* ---------- real buyer <-> seller chat ---------- */
-let chatThreadChannel = null;
 
 async function openOrCreateConversation(sellerId, productId){
   if (!authState.user) { toast('Sign in to chat with sellers'); goto('account'); return; }
@@ -1830,7 +1829,6 @@ async function renderChatThread(conversationId){
   });
 
   await markConversationRead(conversationId);
-  subscribeToChatThread(conversationId);
 }
 
 function renderChatMessages(messages, myId){
@@ -1909,24 +1907,54 @@ async function markConversationRead(conversationId){
   updateMsgDot();
 }
 
-function subscribeToChatThread(conversationId){
-  unsubscribeChatThread();
-  chatThreadChannel = sb.channel('chat-thread-' + conversationId)
-    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `conversation_id=eq.${conversationId}` }, payload => {
-      if (state.view !== 'chatThread' || state.currentConversationId !== conversationId) return;
-      const body = $('#chatThreadBody');
-      if (!body) return;
-      if (body.querySelector(`[data-msg-id="${payload.new.id}"]`)) return; // already shown (e.g. by sendChatMessage)
-      const empty = body.querySelector('p.muted');
-      if (empty) empty.remove();
-      body.insertAdjacentHTML('beforeend', chatBubbleHtml(payload.new, authState.user.id));
-      body.scrollTop = body.scrollHeight;
-      if (payload.new.sender_id !== authState.user.id) markConversationRead(conversationId);
+// ONE realtime subscription per signed-in session (not per open thread — see
+// Task 6D). RLS on `messages` already restricts what this can ever receive
+// to rows the current user is authorized to read (their own conversations),
+// so this never exposes messages the user isn't a participant in.
+let chatThreadChannel = null;
+let chatRealtimeUserId = null;
+
+function subscribeToChatRealtime(){
+  if (!authState.user) return;
+  if (chatThreadChannel && chatRealtimeUserId === authState.user.id) return; // already subscribed for this session
+  unsubscribeChatRealtime();
+  chatRealtimeUserId = authState.user.id;
+  chatThreadChannel = sb.channel('chat-messages-' + authState.user.id)
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, payload => {
+      const m = payload.new;
+      const mine = authState.user && m.sender_id === authState.user.id;
+      const threadOpen = state.view === 'chatThread' && state.currentConversationId === m.conversation_id;
+
+      if (threadOpen) {
+        const body = $('#chatThreadBody');
+        if (body && !body.querySelector(`[data-msg-id="${m.id}"]`)) { // existing dedup guard from Task 6C
+          const empty = body.querySelector('p.muted');
+          if (empty) empty.remove();
+          body.insertAdjacentHTML('beforeend', chatBubbleHtml(m, authState.user.id));
+          body.scrollTop = body.scrollHeight;
+        }
+        if (!mine) markConversationRead(m.conversation_id); // only marks read because this exact thread is open
+      } else if (!mine) {
+        updateMsgDot(); // a message arrived somewhere I'm not currently looking — just flag it
+      }
+
+      // Keep the conversation list (last message, ordering, unread badges) in
+      // sync if it's the screen currently on view.
+      if (state.view === 'messages' && state.msgTab === 'chat') renderConversationList();
     })
-    .subscribe();
+    .subscribe((status, err) => {
+      // Fail gracefully: the chat UI already reloads fresh data on every
+      // navigation (Task 6C), so a realtime hiccup never blocks sending,
+      // reading, or browsing — it only delays instant updates.
+      if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || err) {
+        console.warn('Chat realtime unavailable, falling back to manual refresh on navigation:', err || status);
+      }
+    });
 }
-function unsubscribeChatThread(){
+
+function unsubscribeChatRealtime(){
   if (chatThreadChannel) { sb.removeChannel(chatThreadChannel); chatThreadChannel = null; }
+  chatRealtimeUserId = null;
 }
 
 async function updateMsgDot(){
@@ -2575,7 +2603,6 @@ function showView(view, productId){
   if (view === 'product') renderProductDetail(productId !== undefined ? productId : state.currentProductId);
   if (view === 'store') renderStorePage(productId !== undefined ? productId : state.currentShopId);
   if (view === 'chatThread') renderChatThread(productId !== undefined ? productId : state.currentConversationId);
-  if (view !== 'chatThread') unsubscribeChatThread();
   window.scrollTo({top:0, behavior:'auto'});
 }
 
@@ -2821,7 +2848,7 @@ async function handleSignOut(){
   state.followedShops = new Set();
   userAddresses = [];
   state.selectedAddressId = null;
-  unsubscribeChatThread();
+  unsubscribeChatRealtime();
   updateMsgDot();
   renderCartBadge();
   renderAccount();
@@ -2842,6 +2869,7 @@ async function restoreAuthSession(){
       await loadFollowedShopsFromDB();
       await loadAddressesFromDB();
       updateMsgDot();
+      subscribeToChatRealtime();
     }
     if (state.view === 'account') renderAccount();
     return authState.user;
@@ -2916,6 +2944,7 @@ async function initAuth(){
       await loadFollowedShopsFromDB();
       await loadAddressesFromDB();
       updateMsgDot();
+      subscribeToChatRealtime();
     }
     if (state.view === 'account') renderAccount();
   });

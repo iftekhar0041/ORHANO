@@ -1025,6 +1025,10 @@ async function loadProductsFromDB(){
       visibleData = data.filter(row => !row.seller_id || !suspendedIds.has(row.seller_id));
     }
   } catch (_) { /* if this lookup fails for any reason, fall back to showing everything */ }
+  // Hide products a seller has deactivated (is_active === false). Products
+  // from databases that don't have this column yet (undefined) still show,
+  // so this is safe before the SQL migration below is run.
+  visibleData = visibleData.filter(row => row.is_active !== false);
   PRODUCTS = visibleData.map(row => {
     const imageUrls = Array.isArray(row.image_urls) ? row.image_urls.filter(Boolean)
       : (typeof row.image_urls === 'string' ? (()=>{ try{return JSON.parse(row.image_urls)}catch(_){return []} })()
@@ -1040,6 +1044,7 @@ async function loadProductsFromDB(){
       cat: row.category,
       price: Number(row.price),
       was: Number(row.was_price ?? row.price),
+      stock: Math.max(0, Number(row.stock_quantity ?? 0)),
       emoji: row.emoji,
       bg: row.bg_color,
       colorGroup: row.color_group,
@@ -1201,6 +1206,7 @@ function productCard(p){
   const pct = Math.round((1 - p.price / p.was) * 100);
   const wished = state.wishlist.has(p.id);
   const followed = p.sellerId && state.followedShops.has(p.sellerId);
+  const outOfStock = Number(p.stock) <= 0;
   return `
   <div class="pcard" data-id="${p.id}">
     <div class="pcard-thumb" style="background:${p.bg}">
@@ -1209,6 +1215,7 @@ function productCard(p){
       ${p.imageUrl
         ? `<img src="${escapeHtml(p.imageUrl)}" alt="${escapeHtml(p.name)}" loading="lazy" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;-webkit-touch-callout:none;">`
         : `<span style="font-size:2.2rem">${p.emoji}</span>`}
+      ${outOfStock ? `<span style="position:absolute;inset:0;background:rgba(255,255,255,.72);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:0.8rem;color:var(--brick);">Out of Stock</span>` : ''}
     </div>
     <div class="pcard-body">
       <div class="pcard-name">${p.name}</div>
@@ -1216,9 +1223,9 @@ function productCard(p){
         <span class="pcard-price">${money(p.price)}</span>
         <span class="pcard-was">${money(p.was)}</span>
       </div>
-      <div class="pcard-meta">★ ${p.rating} · ${p.sold} sold</div>
+      <div class="pcard-meta">★ ${p.rating} · ${p.sold} sold · ${outOfStock ? `<span style="color:var(--brick);font-weight:700;">Out of Stock</span>` : 'In Stock'}</div>
       ${p.sellerId ? `<button class="pcard-shop ${followed ? 'active' : ''}" data-follow-shop="${p.sellerId}">🏬 ${p.sellerName || 'Shop'} · ${followed ? 'Following' : 'Follow'}</button>` : ''}
-      <button class="pcard-add" data-add="${p.id}">Add to cart</button>
+      <button class="pcard-add" data-add="${p.id}" ${outOfStock ? 'disabled style="opacity:.5;cursor:not-allowed;"' : ''}>${outOfStock ? 'Out of Stock' : 'Add to cart'}</button>
     </div>
   </div>`;
 }
@@ -1234,7 +1241,8 @@ function renderProductDetail(id){
   const wrap = $('#view-product');
   const p = PRODUCTS.find(x => x.id === id);
   if (!p) { wrap.innerHTML = `<p class="page-title">Product not found.</p><button class="btn-primary" style="margin:0 16px;" data-goto="home">Back to home</button>`; return; }
-  pdpQty = 1;
+  const outOfStock = Number(p.stock) <= 0;
+  pdpQty = outOfStock ? 0 : 1;
   const pct = Math.round((1 - p.price / p.was) * 100);
   const wished = state.wishlist.has(p.id);
   const followed = p.sellerId && state.followedShops.has(p.sellerId);
@@ -1248,6 +1256,7 @@ function renderProductDetail(id){
     <div class="pdp-price-row" style="padding:16px 16px 0;">
       <span class="pdp-price">${money(p.price)}</span>
       ${pct > 0 ? `<span class="pcard-was">${money(p.was)}</span>` : ''}
+      <span style="font-weight:700;font-size:0.82rem;margin-left:auto;color:${outOfStock ? 'var(--brick)' : '#2E9E6B'};">${outOfStock ? 'Out of Stock' : 'In Stock'}</span>
     </div>
     <h1 class="pdp-name" style="padding:0 16px;">${escapeHtml(p.name)}</h1>
     <div class="pcard-meta" style="padding:0 16px;">★ ${p.rating} · ${p.sold} sold</div>
@@ -1265,11 +1274,13 @@ function renderProductDetail(id){
         <h3>Description</h3>
         <p class="muted">${escapeHtml(p.description || defaultDescription(p))}</p>
         <h3 style="margin-top:16px;">Quantity</h3>
+        ${outOfStock ? `<p class="muted" style="color:var(--brick);font-weight:600;">Out of Stock</p>` : `
         <div class="qty">
           <button data-pdp-qty="-1">−</button>
           <span id="pdpQtyValue">1</span>
           <button data-pdp-qty="1">+</button>
         </div>
+        <p class="v4-note">${p.stock} available</p>`}
       </div>
 
       <div id="pdpRatings" class="pdp-section">
@@ -1292,8 +1303,8 @@ function renderProductDetail(id){
     <div class="pdp-buybar">
       <button class="pdp-buybar-icon" data-goto="account" title="Store"><span>🏬</span><span>Store</span></button>
       <button class="pdp-buybar-icon" data-goto="messages" title="Chat"><span>💬</span><span>Chat</span></button>
-      <button class="btn-buy-now" data-buy-now="${p.id}">Buy Now</button>
-      <button class="btn-add-cart" data-pdp-add="${p.id}">Add to Cart</button>
+      <button class="btn-buy-now" data-buy-now="${p.id}" ${outOfStock ? 'disabled style="opacity:.5;cursor:not-allowed;"' : ''}>${outOfStock ? 'Out of Stock' : 'Buy Now'}</button>
+      <button class="btn-add-cart" data-pdp-add="${p.id}" ${outOfStock ? 'disabled style="opacity:.5;cursor:not-allowed;"' : ''}>${outOfStock ? 'Out of Stock' : 'Add to Cart'}</button>
     </div>`;
 
   setupPdpScrollSpy();
@@ -1445,14 +1456,23 @@ async function handleImageSearch(file){
 /* ---------- cart (synced with Supabase when signed in) ---------- */
 async function addToCart(id, qty){
   qty = qty || 1;
-  state.cart[id] = (state.cart[id] || 0) + qty;
+  const p = PRODUCTS.find(x => x.id === id);
+  const stock = p ? Number(p.stock) : Infinity;
+  if (stock <= 0) { toast('Out of stock'); return; }
+  const requested = (state.cart[id] || 0) + qty;
+  const finalQty = Math.min(requested, stock);
+  state.cart[id] = finalQty;
   renderCartBadge();
-  toast('Added to cart');
+  toast(finalQty < requested ? `Only ${stock} in stock — added the max available` : 'Added to cart');
   if (authState.user) await syncCartItemToDB(id, state.cart[id]);
 }
 async function changeQty(id, delta){
   if (!state.cart[id]) return;
-  state.cart[id] += delta;
+  const p = PRODUCTS.find(x => x.id === id);
+  const stock = p ? Number(p.stock) : Infinity;
+  const next = state.cart[id] + delta;
+  if (delta > 0 && next > stock) { toast(`Only ${stock} in stock`); return; }
+  state.cart[id] = next;
   if (state.cart[id] <= 0) delete state.cart[id];
   renderCartBadge();
   renderCart();
@@ -1496,6 +1516,8 @@ function renderCart(){
     const p = PRODUCTS.find(x => String(x.id) === String(id));
     if (!p) { missingCount++; return ''; }
     const qty = state.cart[id];
+    const stock = Number(p.stock);
+    const overStock = qty > stock;
     total += p.price * qty;
     const checked = state.cartSelected.has(id) ? 'checked' : '';
     return `
@@ -1505,11 +1527,12 @@ function renderCart(){
       <div class="cart-info">
         <div class="pcard-name" data-open-product="${p.id}" style="cursor:pointer;">${p.name}</div>
         <div class="pcard-price">${money(p.price)}</div>
+        ${overStock ? `<div style="color:var(--brick);font-size:0.75rem;font-weight:700;">Only ${stock} left — reduce quantity</div>` : (stock === 0 ? `<div style="color:var(--brick);font-size:0.75rem;font-weight:700;">Out of Stock</div>` : '')}
         <div class="cart-controls">
           <div class="qty">
             <button data-qty="-1" data-id="${p.id}">−</button>
             <span>${qty}</span>
-            <button data-qty="1" data-id="${p.id}">+</button>
+            <button data-qty="1" data-id="${p.id}" ${qty >= stock ? 'disabled style="opacity:.4;cursor:not-allowed;"' : ''}>+</button>
           </div>
           <button class="remove-btn" data-remove="${p.id}">Remove</button>
         </div>
@@ -2329,13 +2352,22 @@ async function renderSeller(){
   $('#sellerSales').textContent = money(catalogValue);
   $('#sellerProducts').textContent = sellerProducts.length;
   $('#sellerOrders').textContent = '—';
-  $('#sellerList').innerHTML = sellerProducts.length ? sellerProducts.map(p => `
+  $('#sellerList').innerHTML = sellerProducts.length ? sellerProducts.map(p => {
+    const stock = Math.max(0, Number(p.stock_quantity ?? 0));
+    return `
     <div class="seller-row">
       <div class="cart-thumb" style="background:${p.bg_color};position:relative;overflow:hidden;">${p.image_url ? `<img src="${escapeHtml(p.image_url)}" alt="${escapeHtml(p.name)}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;">` : p.emoji}</div>
-      <div class="pcard-name">${p.name}<br><span class="pcard-meta">${money(Number(p.price))}</span></div>
-      <button class="mini-btn" data-seller-edit="${p.id}">Edit price</button>
+      <div class="pcard-name">${escapeHtml(p.name)}<br><span class="pcard-meta">${money(Number(p.price))} · ${p.is_active === false ? 'Inactive' : 'Active'} · ${stock === 0 ? '<span style="color:var(--brick);font-weight:700;">Out of Stock</span>' : 'In Stock'}</span></div>
+      <div class="qty" style="flex-shrink:0;">
+        <button data-seller-stock-step="-1" data-id="${p.id}" aria-label="Decrease stock">−</button>
+        <span data-seller-stock-value="${p.id}" style="min-width:26px;text-align:center;display:inline-block;">${stock}</span>
+        <button data-seller-stock-step="1" data-id="${p.id}" aria-label="Increase stock">+</button>
+      </div>
+      <button class="mini-btn" data-seller-edit="${p.id}">Edit</button>
+      <button class="mini-btn ${p.is_active === false ? 'primary' : ''}" data-seller-toggle-active="${p.id}">${p.is_active === false ? 'Activate' : 'Deactivate'}</button>
       <button class="mini-btn danger" data-seller-delete="${p.id}">Delete</button>
-    </div>`).join('') : `<p style="padding:16px;color:var(--ink-soft);font-size:0.85rem;">You haven't listed any products yet. Tap "+ Add product" above.</p>`;
+    </div>`;
+  }).join('') : `<p style="padding:16px;color:var(--ink-soft);font-size:0.85rem;">You haven't listed any products yet. Tap "+ Add product" above.</p>`;
 }
 
 /* ---------- admin panel (real — gated by profiles.role = 'admin') ---------- */
@@ -3527,7 +3559,11 @@ document.addEventListener('click', async e => {
 
   const pdpQtyBtn = e.target.closest('[data-pdp-qty]');
   if (pdpQtyBtn) {
-    pdpQty = Math.max(1, pdpQty + Number(pdpQtyBtn.dataset.pdpQty));
+    const p = PRODUCTS.find(x => x.id === state.currentProductId);
+    const maxQty = p ? Number(p.stock) : Infinity;
+    const next = pdpQty + Number(pdpQtyBtn.dataset.pdpQty);
+    if (next > maxQty) { toast(`Only ${maxQty} in stock`); }
+    pdpQty = Math.max(1, Math.min(maxQty, next));
     const el = $('#pdpQtyValue');
     if (el) el.textContent = pdpQty;
     return;
@@ -3706,23 +3742,53 @@ document.addEventListener('click', async e => {
     const id = Number(sellEdit.dataset.sellerEdit);
     const p = sellerProducts.find(x => x.id === id);
     if (!p) return;
-    const input = prompt(`New price for "${p.name}", in BDT (base currency):`, p.price);
-    const price = Number(input);
-    if (input !== null && price > 0) {
-      const { error } = await sb.from('products').update({ price }).eq('id', id);
-      if (error) { toast('Update failed: ' + error.message); return; }
-      await renderSeller();
-      await loadProductsFromDB();
-      renderHomeLists();
-      toast('Price updated');
+    if (window.ORHANO_V4 && typeof window.ORHANO_V4.openSellerProductEditor === 'function') {
+      window.ORHANO_V4.openSellerProductEditor(p);
     }
+    return;
+  }
+
+  const stockStepBtn = e.target.closest('[data-seller-stock-step]');
+  if (stockStepBtn) {
+    const id = Number(stockStepBtn.dataset.id);
+    const p = sellerProducts.find(x => x.id === id);
+    if (!p) return;
+    const delta = Number(stockStepBtn.dataset.sellerStockStep);
+    const current = Math.max(0, Number(p.stock_quantity ?? 0));
+    const next = Math.max(0, current + delta); // never go negative
+    const { error } = await sb.from('products').update({ stock_quantity: next }).eq('id', id).eq('seller_id', authState.user.id);
+    if (error) { toast('Stock update failed: ' + error.message); return; }
+    await renderSeller();
+    await loadProductsFromDB();
+    renderHomeLists();
+    if (state.view === 'search') runSearch();
+    return;
+  }
+
+  const sellToggleActive = e.target.closest('[data-seller-toggle-active]');
+  if (sellToggleActive) {
+    const id = Number(sellToggleActive.dataset.sellerToggleActive);
+    const p = sellerProducts.find(x => x.id === id);
+    if (!p) return;
+    const nextActive = p.is_active === false;
+    const { error } = await sb.from('products').update({ is_active: nextActive }).eq('id', id).eq('seller_id', authState.user.id);
+    if (error) {
+      let msg = 'Update failed: ' + error.message;
+      if (/column/i.test(error.message)) msg = 'This database is missing the "is_active" column — run the SQL migration first (see report), then try again.';
+      toast(msg);
+      return;
+    }
+    await renderSeller();
+    await loadProductsFromDB();
+    renderHomeLists();
+    toast(nextActive ? 'Product activated' : 'Product deactivated');
     return;
   }
 
   const sellDelete = e.target.closest('[data-seller-delete]');
   if (sellDelete) {
     const id = Number(sellDelete.dataset.sellerDelete);
-    const { error } = await sb.from('products').delete().eq('id', id);
+    const { error } = await sb.from('products').delete().eq('id', id).eq('seller_id', authState.user.id);
     if (error) { toast('Delete failed: ' + error.message); return; }
     await renderSeller();
     await loadProductsFromDB();
@@ -3980,7 +4046,7 @@ init();
     if (!result.error) return result;
 
     const msg = String(result.error.message || '').toLowerCase();
-    const schemaIssue = msg.includes('image_urls') || msg.includes('stock_quantity') || msg.includes('column') || msg.includes('schema cache');
+    const schemaIssue = msg.includes('image_urls') || msg.includes('stock_quantity') || msg.includes('is_active') || msg.includes('column') || msg.includes('schema cache');
     if (!schemaIssue) return result;
 
     // Older databases may not have image_urls. Preserve ALL uploaded URLs in
@@ -3988,6 +4054,10 @@ init();
     const fallback = {...payload};
     delete fallback.image_urls;
     if (msg.includes('stock_quantity') || msg.includes('column')) delete fallback.stock_quantity;
+    // is_active needs its own SQL migration (see report) — if that column
+    // doesn't exist yet, drop it from the payload instead of failing the
+    // whole save, so name/price/stock/images etc. still update.
+    if (msg.includes('is_active') || msg.includes('column')) delete fallback.is_active;
     const urls = Array.isArray(payload.image_urls) ? payload.image_urls.filter(Boolean) : [];
     if (urls.length) {
       const base = String(fallback.description || '').replace(/\s*\[\[ORHANO_IMAGES:.*?\]\]\s*/g,' ').trim();
@@ -4026,10 +4096,16 @@ init();
           <div class="v4-field"><label>Product name *</label><input id="v4Name" maxlength="140" value="${esc(existing?.name||'')}"></div>
           <div class="v4-field"><label>Category *</label><select id="v4Cat">${cats}</select></div>
           <div class="v4-grid2">
-            <div class="v4-field"><label>Price (BDT) *</label><input id="v4Price" type="number" min="0.01" step="0.01" value="${existing?.price ?? ''}"></div>
-            <div class="v4-field"><label>Old price (BDT)</label><input id="v4Was" type="number" min="0" step="0.01" value="${existing?.was_price ?? ''}"></div>
+            <div class="v4-field"><label>Sale price (BDT) *</label><input id="v4Price" type="number" min="0.01" step="0.01" value="${existing?.price ?? ''}"></div>
+            <div class="v4-field"><label>Price (BDT)</label><input id="v4Was" type="number" min="0" step="0.01" value="${existing?.was_price ?? ''}"></div>
           </div>
-          <div class="v4-field"><label>Stock</label><input id="v4Stock" type="number" min="0" step="1" value="${existing?.stock_quantity ?? 0}"></div>
+          <div class="v4-grid2">
+            <div class="v4-field"><label>Stock</label><input id="v4Stock" type="number" min="0" step="1" value="${existing?.stock_quantity ?? 0}"></div>
+            <div class="v4-field"><label>Status</label><select id="v4Status">
+              <option value="active" ${existing?.is_active !== false ? 'selected' : ''}>Active</option>
+              <option value="inactive" ${existing?.is_active === false ? 'selected' : ''}>Inactive</option>
+            </select></div>
+          </div>
         </div>
       </div>
       <div class="v4-field"><label>Description</label><textarea id="v4Desc">${esc(existing?.description||'')}</textarea></div>
@@ -4108,6 +4184,7 @@ init();
         const price = Number(el.querySelector('#v4Price').value);
         const was = Number(el.querySelector('#v4Was').value) || Math.round(price * 1.4);
         const stock = Math.max(0, Number(el.querySelector('#v4Stock').value) || 0);
+        const isActive = el.querySelector('#v4Status').value !== 'inactive';
         const description = el.querySelector('#v4Desc').value.trim();
         if (!name || !category || !(price > 0)) { showError('Name, category and price are required.'); return; }
         // NOTE (fix): this used to check only V4.productImageUrls (already-
@@ -4151,6 +4228,7 @@ init();
 
         const payload = {
           name, category, price, was_price: was, stock_quantity: stock,
+          is_active: isActive,
           description: description || null,
           seller_id: authState.user.id,
           image_url: V4.productImageUrls[0] || null,
@@ -4201,9 +4279,35 @@ init();
 
   async function openCheckout() {
     if (!authState.user) { toast('Sign in to checkout'); goto('account'); return; }
-    const items = getCheckoutItems();
+    let items = getCheckoutItems();
     if (!items.length) { toast('Select at least one item'); return; }
     if (!userAddresses.length) { toast('Add a shipping address first'); showAddressPicker(); return; }
+
+    // Fresh stock check (reads live DB values, not the possibly-stale local
+    // cache) so a buyer can't check out with more than is actually available.
+    // This is a first pass for a clear, early message; place_order() below
+    // re-checks again atomically at the moment the order is created.
+    const { data: freshRows, error: stockErr } = await sb.from('products')
+      .select('id, name, stock_quantity, is_active').in('id', items.map(x => x.p.id));
+    if (stockErr) { toast('Could not verify stock: ' + stockErr.message); return; }
+    const stockById = new Map((freshRows||[]).map(r => [r.id, r]));
+    const shortages = [];
+    items.forEach(x => {
+      const row = stockById.get(x.p.id);
+      const available = row ? Math.max(0, Number(row.stock_quantity ?? 0)) : 0;
+      const unavailable = !row || row.is_active === false;
+      x.p.stock = available; // keep local cache in sync with what we just read
+      if (unavailable || x.qty > available) {
+        shortages.push({ name: x.p.name, available: unavailable ? 0 : available });
+        state.cart[x.p.id] = unavailable ? 0 : available;
+        if (state.cart[x.p.id] <= 0) delete state.cart[x.p.id];
+      }
+    });
+    if (shortages.length) {
+      renderCartBadge(); renderCart();
+      toast('Not enough stock for: ' + shortages.map(s => `${s.name} (only ${s.available} left)`).join(', '));
+      return;
+    }
 
     if (!state.selectedAddressId) {
       await loadAddressesFromDB();
@@ -4243,24 +4347,65 @@ init();
       el.querySelector('#v4PlaceOrder').onclick = async () => {
         const btn = el.querySelector('#v4PlaceOrder');
         btn.disabled = true; btn.textContent = 'Placing order…';
+        const shippingAddress = {
+          label: address.label, full_name: address.full_name, phone: address.phone,
+          division: address.division, district: address.district, area: address.area,
+          address: address.address, landmark: address.landmark
+        };
         try {
-          const payload = {
-            user_id: authState.user.id,
-            total,
-            status: V4.payment === 'cod' ? 'pending' : 'pending',
-            payment_method: V4.payment,
-            payment_status: V4.payment === 'cod' ? 'unpaid' : 'pending',
-            shipping_address: {
-              label: address.label, full_name: address.full_name, phone: address.phone,
-              division: address.division, district: address.district, area: address.area,
-              address: address.address, landmark: address.landmark
+          // Preferred path: one atomic database transaction that re-validates
+          // stock, creates the order + order_items, and decrements stock —
+          // see place_order() SQL in the report. Row locks inside it make
+          // this safe even if two buyers race for the last unit.
+          const { data: rpcResult, error: rpcErr } = await sb.rpc('place_order', {
+            p_items: items.map(x => ({ product_id: x.p.id, quantity: x.qty })),
+            p_shipping_address: shippingAddress,
+            p_payment_method: V4.payment
+          });
+
+          const rpcMissing = rpcErr && (
+            rpcErr.code === 'PGRST202' || rpcErr.code === '42883' ||
+            /could not find the function|does not exist/i.test(rpcErr.message || '')
+          );
+
+          let orderId;
+          if (rpcErr && !rpcMissing) {
+            // The function exists and ran — this is its own validation error
+            // (e.g. insufficient stock). Nothing was created; show it as-is.
+            throw rpcErr;
+          } else if (!rpcErr) {
+            orderId = Array.isArray(rpcResult) ? rpcResult[0]?.order_id : rpcResult?.order_id;
+          } else {
+            // Fallback for databases that haven't run the place_order.sql
+            // migration yet: re-check stock one more time right before
+            // writing, then insert + best-effort decrement per item. This
+            // is not fully atomic across concurrent buyers — see report.
+            const { data: freshRows, error: stockErr } = await sb.from('products')
+              .select('id, stock_quantity').in('id', items.map(x => x.p.id));
+            if (stockErr) throw stockErr;
+            const stockById = new Map((freshRows||[]).map(r => [r.id, Math.max(0, Number(r.stock_quantity ?? 0))]));
+            const short = items.find(x => (stockById.get(x.p.id) ?? 0) < x.qty);
+            if (short) throw new Error(`Only ${stockById.get(short.p.id) ?? 0} left of "${short.p.name}" — please adjust your cart.`);
+
+            const payload = {
+              user_id: authState.user.id, total,
+              status: 'pending', payment_method: V4.payment,
+              payment_status: V4.payment === 'cod' ? 'unpaid' : 'pending',
+              shipping_address: shippingAddress
+            };
+            const { data: order, error } = await sb.from('orders').insert(payload).select().single();
+            if (error) throw error;
+            orderId = order.id;
+            const rows = items.map(x=>({order_id:order.id,product_id:x.p.id,quantity:x.qty,price_at_purchase:x.p.price}));
+            const { error:itemErr } = await sb.from('order_items').insert(rows);
+            if (itemErr) throw itemErr;
+
+            for (const x of items) {
+              const current = stockById.get(x.p.id) ?? 0;
+              await sb.from('products').update({ stock_quantity: Math.max(0, current - x.qty) })
+                .eq('id', x.p.id).eq('stock_quantity', current);
             }
-          };
-          const { data: order, error } = await sb.from('orders').insert(payload).select().single();
-          if (error) throw error;
-          const rows = items.map(x=>({order_id:order.id,product_id:x.p.id,quantity:x.qty,price_at_purchase:x.p.price}));
-          const { error:itemErr } = await sb.from('order_items').insert(rows);
-          if (itemErr) throw itemErr;
+          }
 
           for (const x of items) {
             delete state.cart[x.p.id];
@@ -4268,11 +4413,13 @@ init();
           }
           state.cartSelected?.clear();
           renderCartBadge(); renderCart();
+          await loadProductsFromDB();
+          if (state.view === 'search') runSearch();
           closeModal();
-          toast(`Order #${order.id} placed successfully`);
+          toast(`Order #${orderId} placed successfully`);
           goto('orders');
         } catch (err) {
-          toast('Order failed: ' + err.message);
+          toast('Order failed: ' + (err.message || err));
           btn.disabled=false; btn.textContent='Place order';
         }
       };

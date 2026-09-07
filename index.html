@@ -670,6 +670,9 @@ html,body{width:100%;max-width:100%;overflow-x:hidden;-webkit-text-size-adjust:1
   <!-- ===================== PRODUCT DETAIL VIEW ===================== -->
   <main id="view-product" class="view"></main>
 
+  <!-- ===================== SELLER STORE (PUBLIC SHOP PAGE) VIEW ===================== -->
+  <main id="view-store" class="view"></main>
+
   <!-- ===================== CART VIEW ===================== -->
   <main id="view-cart" class="view">
     <h2 class="page-title">Your cart</h2>
@@ -842,6 +845,7 @@ html,body{width:100%;max-width:100%;overflow-x:hidden;-webkit-text-size-adjust:1
   <main id="view-seller" class="view">
     <div class="seller-head">
       <h2 class="page-title" style="padding:0;">Seller Center</h2>
+      <button class="mini-btn" id="sellerEditShopInfoBtn">Shop info</button>
       <button class="mini-btn" data-goto="account">Exit</button>
     </div>
 
@@ -1174,6 +1178,8 @@ const state = {
   orderFilter: 'pending',
   adminShowArchived: false,
   currentProductId: null,
+  currentShopId: null,
+  storeCategoryFilter: 'all',
   selectedAddressId: null, // chosen shipping address for checkout
   shopCategory: null, // currently selected category id in the Shop tab (null = show everything)
 };
@@ -1270,7 +1276,10 @@ function renderProductDetail(id){
 
     <div class="pdp-body">
       <div id="pdpOverview" class="pdp-section" style="margin-top:14px;">
-        ${p.sellerId ? `<button class="pcard-shop ${followed ? 'active' : ''}" data-follow-shop="${p.sellerId}" style="margin-bottom:10px;">🏬 ${escapeHtml(p.sellerName || 'Shop')} · ${followed ? 'Following' : 'Follow'}</button>` : ''}
+        ${p.sellerId ? `<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap;">
+          <button class="pcard-shop ${followed ? 'active' : ''}" data-follow-shop="${p.sellerId}" style="margin:0;">🏬 ${escapeHtml(p.sellerName || 'Shop')} · ${followed ? 'Following' : 'Follow'}</button>
+          <button class="link-btn" data-open-shop="${p.sellerId}" style="padding:0;">Visit Shop →</button>
+        </div>` : ''}
         <h3>Description</h3>
         <p class="muted">${escapeHtml(p.description || defaultDescription(p))}</p>
         <h3 style="margin-top:16px;">Quantity</h3>
@@ -1301,7 +1310,7 @@ function renderProductDetail(id){
       </div>
     </div>
     <div class="pdp-buybar">
-      <button class="pdp-buybar-icon" data-goto="account" title="Store"><span>🏬</span><span>Store</span></button>
+      <button class="pdp-buybar-icon" ${p.sellerId ? `data-open-shop="${p.sellerId}"` : `data-goto="account"`} title="Store"><span>🏬</span><span>Store</span></button>
       <button class="pdp-buybar-icon" data-goto="messages" title="Chat"><span>💬</span><span>Chat</span></button>
       <button class="btn-buy-now" data-buy-now="${p.id}" ${outOfStock ? 'disabled style="opacity:.5;cursor:not-allowed;"' : ''}>${outOfStock ? 'Out of Stock' : 'Buy Now'}</button>
       <button class="btn-add-cart" data-pdp-add="${p.id}" ${outOfStock ? 'disabled style="opacity:.5;cursor:not-allowed;"' : ''}>${outOfStock ? 'Out of Stock' : 'Add to Cart'}</button>
@@ -1335,6 +1344,105 @@ function setupPdpScrollSpy(){
   };
   window.addEventListener('scroll', pdpScrollHandler, { passive: true });
   pdpScrollHandler();
+}
+
+/* ---------- seller store / public shop page ---------- */
+function openStore(sellerId){
+  if (!sellerId) return;
+  goto('store', sellerId);
+}
+
+async function renderStorePage(sellerId){
+  const wrap = $('#view-store');
+  if (!sellerId) {
+    wrap.innerHTML = `<p class="page-title">Shop not found.</p><button class="btn-primary" style="margin:0 16px;" data-goto="home">Back to home</button>`;
+    return;
+  }
+  state.currentShopId = sellerId;
+  wrap.innerHTML = `<p style="padding:40px 16px;text-align:center;color:var(--ink-soft);">Loading shop…</p>`;
+
+  // Only ever select PUBLIC-safe profile columns here — never seller_status,
+  // role, email, etc. shop_bio is optional (see SQL in the report); if the
+  // column doesn't exist yet, retry without it instead of failing.
+  let { data: profile, error: profErr } = await sb.from('profiles')
+    .select('id, full_name, avatar_url, shop_bio').eq('id', sellerId).single();
+  if (profErr && /column|schema cache/i.test(profErr.message || '')) {
+    ({ data: profile, error: profErr } = await sb.from('profiles')
+      .select('id, full_name, avatar_url').eq('id', sellerId).single());
+  }
+  if (profErr || !profile) {
+    wrap.innerHTML = `<p class="page-title">Shop not found.</p><button class="btn-primary" style="margin:0 16px;" data-goto="home">Back to home</button>`;
+    return;
+  }
+
+  const sellerProducts = PRODUCTS.filter(p => p.sellerId === sellerId);
+  const cats = [...new Set(sellerProducts.map(p => p.cat))];
+  if (!state.storeCategoryFilter || (state.storeCategoryFilter !== 'all' && !cats.includes(state.storeCategoryFilter))) {
+    state.storeCategoryFilter = 'all';
+  }
+  const avgRating = sellerProducts.length
+    ? (sellerProducts.reduce((s,p) => s + Number(p.rating||0), 0) / sellerProducts.length).toFixed(1)
+    : '—';
+  const totalSold = sellerProducts.reduce((s,p) => s + Number(p.sold||0), 0);
+
+  const { count: followerCount } = await sb.from('followed_sellers')
+    .select('*', { count: 'exact', head: true }).eq('seller_id', sellerId);
+
+  const following = state.followedShops.has(sellerId);
+  const isOwnShop = authState.user && authState.user.id === sellerId;
+  const shopName = profile.full_name || 'Shop';
+  const bio = (profile.shop_bio && profile.shop_bio.trim())
+    ? profile.shop_bio
+    : `${sellerProducts.length} product${sellerProducts.length === 1 ? '' : 's'} across ${cats.length || 0} categor${cats.length === 1 ? 'y' : 'ies'} on ORHANO.`;
+
+  wrap.innerHTML = `
+    <div class="pdp-image" style="background:var(--line);height:100px;position:relative;">
+      <button class="pdp-back" data-goto="home" aria-label="Back">←</button>
+    </div>
+    <div style="padding:0 16px;margin-top:-36px;">
+      <div class="avatar avatar-lg" id="storeAvatar" style="border:3px solid #fff;">?</div>
+      <h1 class="pdp-name" style="padding:10px 0 0;">${escapeHtml(shopName)}</h1>
+      <div class="pcard-meta">★ ${avgRating} · ${totalSold} sold · ${followerCount ?? 0} follower${followerCount === 1 ? '' : 's'}</div>
+      <p class="muted" style="margin:8px 0;">${escapeHtml(bio)}</p>
+      ${isOwnShop ? '' : `
+      <div style="display:flex;gap:8px;margin:10px 0 14px;">
+        <button class="btn-primary" style="flex:1;" data-follow-shop="${sellerId}">${following ? 'Following' : '+ Follow'}</button>
+        <button class="mini-btn" id="storeChatBtn" style="flex:1;">💬 Chat</button>
+      </div>`}
+    </div>
+    <div class="chip-row" id="storeChips"></div>
+    <div class="grid" id="storeGrid" style="padding:14px 16px;"></div>
+  `;
+  applyAvatar($('#storeAvatar'), shopName, profile.avatar_url);
+  renderStoreChips(cats);
+  renderStoreGrid();
+
+  const chatBtn = $('#storeChatBtn');
+  if (chatBtn) chatBtn.onclick = () => toast('Chat with sellers is coming soon');
+}
+
+function renderStoreChips(cats){
+  const chipsEl = $('#storeChips');
+  if (!chipsEl) return;
+  const chips = [{id:'all', label:'All'}, ...cats.map(cid => {
+    const cat = CATEGORIES.find(c => c.id === cid);
+    return { id: cid, label: cat ? cat.label : cid };
+  })];
+  chipsEl.innerHTML = chips.map(c =>
+    `<button class="chip ${state.storeCategoryFilter === c.id ? 'active' : ''}" data-store-filter="${c.id}">${c.label}</button>`
+  ).join('');
+}
+
+function renderStoreGrid(){
+  const grid = $('#storeGrid');
+  if (!grid) return;
+  let items = PRODUCTS.filter(p => p.sellerId === state.currentShopId);
+  if (state.storeCategoryFilter && state.storeCategoryFilter !== 'all') {
+    items = items.filter(p => p.cat === state.storeCategoryFilter);
+  }
+  grid.innerHTML = items.length
+    ? items.map(productCard).join('')
+    : `<p style="grid-column:1/-1;color:var(--ink-soft);padding:20px 0;font-size:0.85rem;">No products in this category yet.</p>`;
 }
 
 /* ---------- render: categories ---------- */
@@ -1645,6 +1753,7 @@ async function toggleWishlist(id){
 function refreshProductCards(){
   if (state.view === 'home') renderHomeLists();
   if (state.view === 'search') runSearch();
+  if (state.view === 'store') renderStorePage(state.currentShopId);
 }
 function renderSaved(){
   const items = PRODUCTS.filter(p => state.wishlist.has(p.id));
@@ -1705,8 +1814,8 @@ async function renderShops(){
     const liveCount = PRODUCTS.filter(p => p.sellerId === shop.id).length;
     return `
     <div class="seller-row">
-      <div class="cart-thumb" style="background:var(--line)">🏬</div>
-      <div class="pcard-name">${shop.full_name || 'Shop'}<br><span class="pcard-meta">${liveCount} live listing${liveCount === 1 ? '' : 's'}</span></div>
+      <div class="cart-thumb" data-open-shop="${shop.id}" style="background:var(--line);cursor:pointer;">🏬</div>
+      <div class="pcard-name" data-open-shop="${shop.id}" style="cursor:pointer;">${shop.full_name || 'Shop'}<br><span class="pcard-meta">${liveCount} live listing${liveCount === 1 ? '' : 's'}</span></div>
       <button class="mini-btn danger" data-unfollow-shop="${shop.id}">Unfollow</button>
     </div>`;
   }).join('');
@@ -1916,13 +2025,17 @@ function showView(view, productId){
   if (view === 'saved') renderSaved();
   if (view === 'shops') renderShops();
   if (view === 'product') renderProductDetail(productId !== undefined ? productId : state.currentProductId);
+  if (view === 'store') renderStorePage(productId !== undefined ? productId : state.currentShopId);
   window.scrollTo({top:0, behavior:'auto'});
 }
 
 function goto(view, productId){
   if (view === 'admin') view = 'admin-gate';
   if (view === 'settings' && !authState.user) view = 'account';
-  if (productId !== undefined) state.currentProductId = productId;
+  if (productId !== undefined) {
+    if (view === 'store') state.currentShopId = productId;
+    else state.currentProductId = productId;
+  }
   if (appHistoryReady) {
     history.pushState({ orhano:true, type:'view', view, productId }, '', window.location.href);
   }
@@ -3554,6 +3667,17 @@ document.addEventListener('click', async e => {
   const followBtn = e.target.closest('[data-follow-shop]');
   if (followBtn) return toggleFollowShop(followBtn.dataset.followShop);
 
+  const openShopBtn = e.target.closest('[data-open-shop]');
+  if (openShopBtn) return openStore(openShopBtn.dataset.openShop);
+
+  const storeFilterChip = e.target.closest('[data-store-filter]');
+  if (storeFilterChip) {
+    state.storeCategoryFilter = storeFilterChip.dataset.storeFilter;
+    $$('#storeChips .chip').forEach(c => c.classList.toggle('active', c === storeFilterChip));
+    renderStoreGrid();
+    return;
+  }
+
   const unfollowBtn = e.target.closest('[data-unfollow-shop]');
   if (unfollowBtn) return toggleFollowShop(unfollowBtn.dataset.unfollowShop);
 
@@ -4484,6 +4608,44 @@ init();
   // Wires up the Seller Center's "+ Add product" button.
   document.getElementById('sellerAddBtn')?.addEventListener('click', () => {
     openSellerProductEditor();
+  });
+
+  // Wires up the Seller Center's "Shop info" button — lets a seller set the
+  // public bio shown on their Store page (see renderStorePage / shop_bio
+  // column). Falls back gracefully if that column hasn't been migrated yet.
+  document.getElementById('sellerEditShopInfoBtn')?.addEventListener('click', async () => {
+    if (!authState.user) { toast('Sign in first'); return; }
+    let currentBio = '';
+    const { data: existingProfile } = await sb.from('profiles').select('shop_bio').eq('id', authState.user.id).single();
+    if (existingProfile) currentBio = existingProfile.shop_bio || '';
+
+    modal('Shop info', `
+      <p class="v4-note">This shows on your public Store page, which buyers can open from any of your product listings.</p>
+      <div class="v4-field"><label>About your shop</label>
+        <textarea id="v4ShopBio" rows="4" maxlength="300" placeholder="Tell buyers what your shop is about…">${esc(currentBio)}</textarea>
+      </div>
+      <button class="v4-primary" id="v4SaveShopBio">Save</button>
+      <button class="mini-btn" id="v4ViewMyShop" style="width:100%;margin-top:8px;">Preview my Store page</button>
+    `, el => {
+      el.querySelector('#v4ViewMyShop').onclick = () => { closeModal(); openStore(authState.user.id); };
+      el.querySelector('#v4SaveShopBio').onclick = async () => {
+        const btn = el.querySelector('#v4SaveShopBio');
+        btn.disabled = true; btn.textContent = 'Saving…';
+        const bio = el.querySelector('#v4ShopBio').value.trim();
+        const { error } = await sb.from('profiles').update({ shop_bio: bio || null }).eq('id', authState.user.id);
+        if (error) {
+          if (/column|schema cache/i.test(error.message)) {
+            toast('This database is missing the "shop_bio" column — run the SQL migration first (see report), then try again.');
+          } else {
+            toast('Save failed: ' + error.message);
+          }
+          btn.disabled = false; btn.textContent = 'Save';
+          return;
+        }
+        toast('Shop info saved');
+        closeModal();
+      };
+    });
   });
 
   // Expose useful controls for future ChatGPT/Claude edits.

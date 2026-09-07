@@ -369,6 +369,40 @@ button{font-family:inherit;cursor:pointer;}
 .btn-buy-now{background:var(--mango); color:var(--ink);}
 .btn-add-cart{background:var(--ink); color:#fff;}
 
+/* ---------- chat thread ---------- */
+.chat-thread-head{
+  display:flex; align-items:center; gap:10px; padding:12px 16px;
+  border-bottom:1px solid var(--line); position:sticky; top:0; background:var(--card); z-index:5;
+}
+.chat-thread-back{
+  width:30px;height:30px;border-radius:50%;border:none;background:var(--bg);
+  display:flex;align-items:center;justify-content:center;font-size:1rem;color:var(--ink);flex-shrink:0;
+}
+.chat-thread-body{padding:14px 16px 80px; display:flex; flex-direction:column; gap:10px; min-height:200px;}
+.chat-bubble{
+  max-width:78%; padding:9px 12px; border-radius:16px; font-size:0.85rem; line-height:1.4;
+  word-wrap:break-word; white-space:pre-wrap;
+}
+.chat-bubble.theirs{align-self:flex-start; background:var(--bg); color:var(--ink); border-bottom-left-radius:4px;}
+.chat-bubble.mine{align-self:flex-end; background:var(--teal); color:#fff; border-bottom-right-radius:4px;}
+.chat-bubble-time{display:block; margin-top:3px; font-size:0.65rem; opacity:.7;}
+.chat-input-bar{
+  position:fixed; left:0; right:0; bottom:64px; z-index:25;
+  max-width:1200px; margin:0 auto;
+  background:var(--card); border-top:1px solid var(--line);
+  display:flex; align-items:center; gap:8px; padding:8px 12px;
+}
+.chat-input-bar textarea{
+  flex:1; resize:none; border:1px solid #dddfe4; border-radius:18px; padding:9px 14px;
+  font:inherit; font-size:0.85rem; max-height:80px; outline:none;
+}
+.chat-send-btn{
+  flex-shrink:0; width:38px;height:38px;border-radius:50%;border:none;
+  background:var(--teal); color:#fff; display:flex; align-items:center; justify-content:center;
+}
+.chat-conv-row{display:flex; gap:10px; align-items:center; padding:12px 16px; border-bottom:1px solid var(--line); cursor:pointer;}
+.chat-conv-unread{background:var(--teal); color:#fff; border-radius:999px; font-size:0.68rem; font-weight:700; padding:2px 7px; min-width:18px; text-align:center;}
+
 /* ---------- bottom nav ---------- */
 .bottomnav{
   position:fixed; bottom:0; left:0; right:0; z-index:30;
@@ -673,6 +707,9 @@ html,body{width:100%;max-width:100%;overflow-x:hidden;-webkit-text-size-adjust:1
   <!-- ===================== SELLER STORE (PUBLIC SHOP PAGE) VIEW ===================== -->
   <main id="view-store" class="view"></main>
 
+  <!-- ===================== CHAT THREAD VIEW ===================== -->
+  <main id="view-chat-thread" class="view"></main>
+
   <!-- ===================== CART VIEW ===================== -->
   <main id="view-cart" class="view">
     <h2 class="page-title">Your cart</h2>
@@ -845,6 +882,7 @@ html,body{width:100%;max-width:100%;overflow-x:hidden;-webkit-text-size-adjust:1
   <main id="view-seller" class="view">
     <div class="seller-head">
       <h2 class="page-title" style="padding:0;">Seller Center</h2>
+      <button class="mini-btn" id="sellerMessagesBtn">💬 Messages</button>
       <button class="mini-btn" id="sellerEditShopInfoBtn">Shop info</button>
       <button class="mini-btn" data-goto="account">Exit</button>
     </div>
@@ -1184,6 +1222,7 @@ const state = {
   currentProductId: null,
   currentShopId: null,
   storeCategoryFilter: 'all',
+  currentConversationId: null,
   selectedAddressId: null, // chosen shipping address for checkout
   shopCategory: null, // currently selected category id in the Shop tab (null = show everything)
 };
@@ -1315,7 +1354,7 @@ function renderProductDetail(id){
     </div>
     <div class="pdp-buybar">
       <button class="pdp-buybar-icon" ${p.sellerId ? `data-open-shop="${p.sellerId}"` : `data-goto="account"`} title="Store"><span>🏬</span><span>Store</span></button>
-      <button class="pdp-buybar-icon" data-goto="messages" title="Chat"><span>💬</span><span>Chat</span></button>
+      <button class="pdp-buybar-icon" ${p.sellerId ? `data-open-chat-with="${p.sellerId}" data-chat-product="${p.id}"` : `data-goto="messages"`} title="Chat"><span>💬</span><span>Chat</span></button>
       <button class="btn-buy-now" data-buy-now="${p.id}" ${outOfStock ? 'disabled style="opacity:.5;cursor:not-allowed;"' : ''}>${outOfStock ? 'Out of Stock' : 'Buy Now'}</button>
       <button class="btn-add-cart" data-pdp-add="${p.id}" ${outOfStock ? 'disabled style="opacity:.5;cursor:not-allowed;"' : ''}>${outOfStock ? 'Out of Stock' : 'Add to Cart'}</button>
     </div>`;
@@ -1423,7 +1462,7 @@ async function renderStorePage(sellerId){
   renderStoreGrid();
 
   const chatBtn = $('#storeChatBtn');
-  if (chatBtn) chatBtn.onclick = () => toast('Chat with sellers is coming soon');
+  if (chatBtn) chatBtn.onclick = () => openOrCreateConversation(sellerId);
 }
 
 function renderStoreChips(cats){
@@ -1672,6 +1711,233 @@ async function submitSellerReply(reviewId){
   if (error) { toast('Could not post reply: ' + error.message); return; }
   toast('Reply posted');
   await renderProductReviews(state.currentProductId);
+}
+
+/* ---------- real buyer <-> seller chat ---------- */
+let chatThreadChannel = null;
+
+async function openOrCreateConversation(sellerId, productId){
+  if (!authState.user) { toast('Sign in to chat with sellers'); goto('account'); return; }
+  if (!sellerId) { toast('Chat is not available for this item'); return; }
+  if (sellerId === authState.user.id) { toast("You can't message your own shop"); return; }
+
+  const { data: existing } = await sb.from('conversations')
+    .select('id').eq('buyer_id', authState.user.id).eq('seller_id', sellerId).maybeSingle();
+
+  let conversationId = existing?.id;
+  if (!conversationId) {
+    const { data: created, error: insErr } = await sb.from('conversations')
+      .insert({ buyer_id: authState.user.id, seller_id: sellerId, product_id: productId || null })
+      .select('id').single();
+    if (insErr) {
+      // Someone may have created the same conversation a moment earlier (race) —
+      // check once more before giving up.
+      const { data: retry } = await sb.from('conversations')
+        .select('id').eq('buyer_id', authState.user.id).eq('seller_id', sellerId).maybeSingle();
+      if (retry?.id) {
+        conversationId = retry.id;
+      } else {
+        toast(/relation|does not exist|schema cache/i.test(insErr.message || '')
+          ? "Chat isn't set up on this database yet — see the report for the required SQL."
+          : 'Could not start chat: ' + insErr.message);
+        return;
+      }
+    } else {
+      conversationId = created.id;
+    }
+  }
+  goto('chatThread', conversationId);
+}
+
+async function renderChatThread(conversationId){
+  const wrap = $('#view-chat-thread');
+  if (!conversationId || !authState.user) {
+    wrap.innerHTML = `<p class="page-title">Chat not available.</p><button class="btn-primary" style="margin:0 16px;" data-goto="messages">Back to messages</button>`;
+    return;
+  }
+  state.currentConversationId = conversationId;
+  wrap.innerHTML = `<p style="padding:40px 16px;text-align:center;color:var(--ink-soft);">Loading chat…</p>`;
+
+  const { data: conv, error: convErr } = await sb.from('conversations')
+    .select('id, buyer_id, seller_id, buyer:profiles!conversations_buyer_id_fkey(full_name,avatar_url), seller:profiles!conversations_seller_id_fkey(full_name,avatar_url)')
+    .eq('id', conversationId).single();
+
+  if (convErr || !conv) {
+    wrap.innerHTML = /relation|does not exist|schema cache/i.test(convErr?.message || '')
+      ? `<p class="page-title">Chat isn't set up on this database yet.</p><button class="btn-primary" style="margin:0 16px;" data-goto="messages">Back</button>`
+      : `<p class="page-title">Chat not found.</p><button class="btn-primary" style="margin:0 16px;" data-goto="messages">Back to messages</button>`;
+    return;
+  }
+
+  // Authorization check — defense in depth; the real gate is the RLS SELECT
+  // policy on messages/conversations (see report), which is what actually
+  // stops someone loading a thread they aren't part of.
+  const isBuyer = conv.buyer_id === authState.user.id;
+  const isSeller = conv.seller_id === authState.user.id;
+  if (!isBuyer && !isSeller) {
+    wrap.innerHTML = `<p class="page-title">You don't have access to this chat.</p><button class="btn-primary" style="margin:0 16px;" data-goto="messages">Back to messages</button>`;
+    return;
+  }
+  const other = isBuyer ? conv.seller : conv.buyer;
+  const otherId = isBuyer ? conv.seller_id : conv.buyer_id;
+  const otherName = other?.full_name || 'User';
+
+  const { data: messages } = await sb.from('messages')
+    .select('id, sender_id, body, created_at, read_at')
+    .eq('conversation_id', conversationId)
+    .order('created_at', { ascending: true });
+
+  wrap.innerHTML = `
+    <div class="chat-thread-head">
+      <button class="chat-thread-back" data-goto="messages" aria-label="Back">←</button>
+      <div class="avatar" id="chatThreadAvatar" style="width:36px;height:36px;font-size:0.85rem;">?</div>
+      <div style="flex:1;min-width:0;">
+        <strong style="font-size:0.9rem;display:block;">${escapeHtml(otherName)}</strong>
+        ${isBuyer ? `<button class="link-btn" data-open-shop="${otherId}" style="padding:0;font-size:0.72rem;">Visit shop →</button>` : `<span class="muted" style="font-size:0.72rem;">Buyer</span>`}
+      </div>
+    </div>
+    <div class="chat-thread-body" id="chatThreadBody"></div>
+    <div class="chat-input-bar">
+      <textarea id="chatMessageInput" rows="1" placeholder="Write a message…"></textarea>
+      <button class="chat-send-btn" id="chatSendBtn" aria-label="Send message">➤</button>
+    </div>`;
+  applyAvatar($('#chatThreadAvatar'), otherName, other?.avatar_url);
+  renderChatMessages(messages || [], authState.user.id);
+
+  $('#chatSendBtn').onclick = sendChatMessage;
+  $('#chatMessageInput').addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChatMessage(); }
+  });
+
+  await markConversationRead(conversationId);
+  subscribeToChatThread(conversationId);
+}
+
+function renderChatMessages(messages, myId){
+  const body = $('#chatThreadBody');
+  if (!body) return;
+  body.innerHTML = messages.length ? messages.map(m => chatBubbleHtml(m, myId)).join('')
+    : `<p class="muted" style="text-align:center;margin-top:30px;">No messages yet — say hello!</p>`;
+  body.scrollTop = body.scrollHeight;
+}
+
+function chatBubbleHtml(m, myId){
+  const mine = m.sender_id === myId;
+  const time = m.created_at ? new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+  return `<div class="chat-bubble ${mine ? 'mine' : 'theirs'}" data-msg-id="${m.id}">${escapeHtml(m.body)}<span class="chat-bubble-time">${time}${mine ? (m.read_at ? ' · Seen' : ' · Sent') : ''}</span></div>`;
+}
+
+async function sendChatMessage(){
+  const input = $('#chatMessageInput');
+  if (!input) return;
+  const text = input.value.trim();
+  const conversationId = state.currentConversationId;
+  if (!text || !conversationId || !authState.user) return;
+  input.value = '';
+  const { error } = await sb.from('messages').insert({
+    conversation_id: conversationId, sender_id: authState.user.id, body: text
+  });
+  if (error) {
+    toast(/relation|does not exist|schema cache/i.test(error.message)
+      ? "Chat isn't set up on this database yet — see the report for the required SQL."
+      : 'Could not send: ' + error.message);
+    input.value = text;
+    return;
+  }
+  // Realtime (below) appends the bubble for both sender and recipient, so
+  // there's no separate optimistic-append step here to avoid duplicates.
+  await sb.from('conversations').update({
+    last_message_at: new Date().toISOString(), last_message_text: text.slice(0, 120)
+  }).eq('id', conversationId);
+}
+
+async function markConversationRead(conversationId){
+  if (!authState.user) return;
+  await sb.from('messages').update({ read_at: new Date().toISOString() })
+    .eq('conversation_id', conversationId).neq('sender_id', authState.user.id).is('read_at', null);
+  updateMsgDot();
+}
+
+function subscribeToChatThread(conversationId){
+  unsubscribeChatThread();
+  chatThreadChannel = sb.channel('chat-thread-' + conversationId)
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `conversation_id=eq.${conversationId}` }, payload => {
+      if (state.view !== 'chatThread' || state.currentConversationId !== conversationId) return;
+      const body = $('#chatThreadBody');
+      if (!body) return;
+      const empty = body.querySelector('p.muted');
+      if (empty) empty.remove();
+      body.insertAdjacentHTML('beforeend', chatBubbleHtml(payload.new, authState.user.id));
+      body.scrollTop = body.scrollHeight;
+      if (payload.new.sender_id !== authState.user.id) markConversationRead(conversationId);
+    })
+    .subscribe();
+}
+function unsubscribeChatThread(){
+  if (chatThreadChannel) { sb.removeChannel(chatThreadChannel); chatThreadChannel = null; }
+}
+
+async function updateMsgDot(){
+  const dot = $('#msgDot');
+  if (!dot) return;
+  if (!authState.user) { dot.style.display = 'none'; return; }
+  // RLS already limits this to messages in conversations I'm part of, so no
+  // extra join is needed here — see the "Participants can read messages" policy.
+  const { count, error } = await sb.from('messages')
+    .select('id', { count: 'exact', head: true })
+    .is('read_at', null)
+    .neq('sender_id', authState.user.id);
+  dot.style.display = (!error && count) ? 'block' : 'none';
+}
+
+async function renderConversationList(){
+  const list = $('#messagesList');
+  if (!authState.user) {
+    list.innerHTML = `<p style="padding:16px;color:var(--ink-soft);font-size:0.85rem;">Sign in to chat with buyers and sellers.</p>`;
+    return;
+  }
+  list.innerHTML = `<p style="padding:16px;color:var(--ink-soft);font-size:0.85rem;">Loading…</p>`;
+  const myId = authState.user.id;
+  const { data, error } = await sb.from('conversations')
+    .select('id, buyer_id, seller_id, product_id, last_message_at, last_message_text, buyer:profiles!conversations_buyer_id_fkey(full_name,avatar_url), seller:profiles!conversations_seller_id_fkey(full_name,avatar_url), products(name)')
+    .or(`buyer_id.eq.${myId},seller_id.eq.${myId}`)
+    .order('last_message_at', { ascending: false, nullsFirst: false });
+
+  if (error) {
+    list.innerHTML = /relation|does not exist|schema cache/i.test(error.message)
+      ? `<p style="padding:16px;color:var(--ink-soft);font-size:0.85rem;">Chat isn't set up on this database yet.</p>`
+      : `<p style="padding:16px;color:var(--brick);font-size:0.85rem;">Could not load chats: ${escapeHtml(error.message)}</p>`;
+    return;
+  }
+  if (!data || !data.length) {
+    list.innerHTML = `<p style="padding:16px;color:var(--ink-soft);font-size:0.85rem;">No conversations yet. Tap "Chat" on any product or shop to start one.</p>`;
+    return;
+  }
+
+  const { data: unreadRows } = await sb.from('messages').select('conversation_id').is('read_at', null).neq('sender_id', myId);
+  const unreadByConv = {};
+  (unreadRows || []).forEach(r => { unreadByConv[r.conversation_id] = (unreadByConv[r.conversation_id] || 0) + 1; });
+
+  list.innerHTML = data.map(c => {
+    const isBuyer = c.buyer_id === myId;
+    const other = isBuyer ? c.seller : c.buyer;
+    const otherName = other?.full_name || 'User';
+    const roleLabel = isBuyer ? 'Seller' : 'Buyer';
+    const productLine = c.products?.name ? ` · Re: ${escapeHtml(c.products.name)}` : '';
+    const unread = unreadByConv[c.id] || 0;
+    return `
+    <div class="chat-conv-row" data-open-chat="${c.id}">
+      <div class="cart-thumb" style="background:var(--line);border-radius:50%;">🏬</div>
+      <div style="flex:1;min-width:0;">
+        <strong style="font-size:0.85rem;">${escapeHtml(otherName)}</strong> <span class="pcard-meta">(${roleLabel})</span>
+        <p class="muted" style="margin:2px 0 0;font-size:0.78rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(c.last_message_text || 'Say hello!')}${productLine}</p>
+      </div>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;">
+        <span class="msg-time">${c.last_message_at ? timeAgo(c.last_message_at) : ''}</span>
+        ${unread ? `<span class="chat-conv-unread">${unread}</span>` : ''}
+      </div>
+    </div>`;
+  }).join('');
 }
 
 /* ---------- render: categories ---------- */
@@ -2167,9 +2433,6 @@ const MESSAGES = {
     { icon:'🎁', title:'Buy & win', body:'Spend ৳500+ to enter this week\'s prize draw.', time:'1d' },
     { icon:'💳', title:'Card offer', body:'12% back with select bank cards, max ৳800.', time:'2d' },
   ],
-  chat: [
-    { icon:'🏬', title:'ORHANO Fashion House', body:'Thanks for your order — packed with care!', time:'5h' },
-  ],
 };
 function timeAgo(dateStr){
   const diffMs = Date.now() - new Date(dateStr).getTime();
@@ -2179,6 +2442,7 @@ function timeAgo(dateStr){
   return Math.floor(h / 24) + 'd';
 }
 async function renderMessages(){
+  if (state.msgTab === 'chat') return renderConversationList();
   if (state.msgTab === 'orders') {
     $('#messagesList').innerHTML = `<p style="padding:16px;color:var(--ink-soft);font-size:0.85rem;">Loading…</p>`;
     if (!authState.user) {
@@ -2255,6 +2519,8 @@ function showView(view, productId){
   if (view === 'shops') renderShops();
   if (view === 'product') renderProductDetail(productId !== undefined ? productId : state.currentProductId);
   if (view === 'store') renderStorePage(productId !== undefined ? productId : state.currentShopId);
+  if (view === 'chatThread') renderChatThread(productId !== undefined ? productId : state.currentConversationId);
+  if (view !== 'chatThread') unsubscribeChatThread();
   window.scrollTo({top:0, behavior:'auto'});
 }
 
@@ -2263,6 +2529,7 @@ function goto(view, productId){
   if (view === 'settings' && !authState.user) view = 'account';
   if (productId !== undefined) {
     if (view === 'store') state.currentShopId = productId;
+    else if (view === 'chatThread') state.currentConversationId = productId;
     else state.currentProductId = productId;
   }
   if (appHistoryReady) {
@@ -2499,6 +2766,8 @@ async function handleSignOut(){
   state.followedShops = new Set();
   userAddresses = [];
   state.selectedAddressId = null;
+  unsubscribeChatThread();
+  updateMsgDot();
   renderCartBadge();
   renderAccount();
   refreshProductCards();
@@ -2517,6 +2786,7 @@ async function restoreAuthSession(){
       await loadWishlistFromDB();
       await loadFollowedShopsFromDB();
       await loadAddressesFromDB();
+      updateMsgDot();
     }
     if (state.view === 'account') renderAccount();
     return authState.user;
@@ -2590,6 +2860,7 @@ async function initAuth(){
       await loadWishlistFromDB();
       await loadFollowedShopsFromDB();
       await loadAddressesFromDB();
+      updateMsgDot();
     }
     if (state.view === 'account') renderAccount();
   });
@@ -3957,6 +4228,12 @@ document.addEventListener('click', async e => {
     return goto('cart');
   }
 
+  const openChatWithBtn = e.target.closest('[data-open-chat-with]');
+  if (openChatWithBtn) return openOrCreateConversation(openChatWithBtn.dataset.openChatWith, Number(openChatWithBtn.dataset.chatProduct) || null);
+
+  const openChatRow = e.target.closest('[data-open-chat]');
+  if (openChatRow) return goto('chatThread', Number(openChatRow.dataset.openChat));
+
   const starSelectBtn = e.target.closest('[data-star-select]');
   if (starSelectBtn) {
     reviewDraft.rating = Number(starSelectBtn.dataset.starSelect);
@@ -4321,7 +4598,8 @@ async function init(){
   renderCartBadge();
   renderCurrencySelect();
   startCountdown();
-  $('#msgDot').style.display = 'block';
+  $('#msgDot').style.display = 'none';
+  updateMsgDot();
   setAuthMode('signin');
   renderSettingsMenu();
 
@@ -4890,6 +5168,16 @@ init();
   // Wires up the Seller Center's "Shop info" button — lets a seller set the
   // public bio shown on their Store page (see renderStorePage / shop_bio
   // column). Falls back gracefully if that column hasn't been migrated yet.
+  // Wires up the Seller Center's "Messages" shortcut — jumps straight to
+  // the Chat tab so a seller can find buyer conversations without hunting
+  // through the shared bottom-nav Updates icon.
+  document.getElementById('sellerMessagesBtn')?.addEventListener('click', () => {
+    state.msgTab = 'chat';
+    goto('messages');
+    document.querySelectorAll('.tab[data-mtab]').forEach(t => t.classList.toggle('active', t.dataset.mtab === 'chat'));
+    renderMessages();
+  });
+
   document.getElementById('sellerEditShopInfoBtn')?.addEventListener('click', async () => {
     if (!authState.user) { toast('Sign in first'); return; }
     let currentBio = '';

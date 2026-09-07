@@ -922,6 +922,10 @@ html,body{width:100%;max-width:100%;overflow-x:hidden;-webkit-text-size-adjust:1
       <button class="link-btn" id="toggleArchivedBtn">Show archived</button>
     </div>
     <div class="admin-list" id="adminApprovals"></div>
+    <div class="section-head" style="padding:14px 16px 0;">
+      <h2 style="font-size:1rem;">Recent reviews</h2>
+    </div>
+    <div class="admin-list" id="adminReviews"></div>
   </main>
 
 </div>
@@ -1294,7 +1298,7 @@ function renderProductDetail(id){
 
       <div id="pdpRatings" class="pdp-section">
         <h3>Ratings &amp; Reviews</h3>
-        <p class="muted">★ ${p.rating} average · ${p.sold} sold. No individual reviews yet.</p>
+        <div id="pdpReviewsBody"><p class="muted">Loading reviews…</p></div>
       </div>
 
       <div id="pdpDetails" class="pdp-section">
@@ -1317,6 +1321,7 @@ function renderProductDetail(id){
     </div>`;
 
   setupPdpScrollSpy();
+  renderProductReviews(p.id);
 }
 
 function setupPdpScrollSpy(){
@@ -1443,6 +1448,230 @@ function renderStoreGrid(){
   grid.innerHTML = items.length
     ? items.map(productCard).join('')
     : `<p style="grid-column:1/-1;color:var(--ink-soft);padding:20px 0;font-size:0.85rem;">No products in this category yet.</p>`;
+}
+
+/* ---------- product reviews & ratings ---------- */
+let reviewDraft = { rating: 0, images: [] }; // images: array of {file, previewUrl}
+
+function starRowHtml(rating, interactive){
+  let out = '';
+  for (let i = 1; i <= 5; i++) {
+    const filled = i <= Math.round(rating);
+    out += interactive
+      ? `<button type="button" class="review-star" data-star-select="${i}" style="border:none;background:none;font-size:1.4rem;line-height:1;padding:2px;cursor:pointer;color:${filled ? 'var(--teal)' : '#D8DCE1'};">★</button>`
+      : `<span style="color:${filled ? 'var(--teal)' : '#D8DCE1'};">★</span>`;
+  }
+  return out;
+}
+
+function reviewCardHtml(r, isOwnProductSeller){
+  const name = r.profiles?.full_name || 'Verified buyer';
+  const when = r.created_at ? new Date(r.created_at).toLocaleDateString() : '';
+  const reply = Array.isArray(r.review_replies) ? r.review_replies[0] : r.review_replies;
+  const images = Array.isArray(r.image_urls) ? r.image_urls : [];
+  return `
+    <div class="review-card" style="padding:12px 0;border-bottom:1px solid var(--line);">
+      <div style="display:flex;justify-content:space-between;gap:8px;">
+        <strong style="font-size:0.85rem;">${escapeHtml(name)}</strong>
+        <span class="muted" style="font-size:0.72rem;">${when}</span>
+      </div>
+      <div style="margin:3px 0;">${starRowHtml(r.rating, false)}</div>
+      ${r.review_text ? `<p class="muted" style="margin:4px 0;">${escapeHtml(r.review_text)}</p>` : ''}
+      ${images.length ? `<div style="display:flex;gap:6px;margin:6px 0;flex-wrap:wrap;">${images.map(u => `<img src="${escapeHtml(u)}" style="width:56px;height:56px;object-fit:cover;border-radius:8px;">`).join('')}</div>` : ''}
+      ${reply ? `
+        <div style="margin-top:8px;padding:8px 10px;background:var(--card);border-radius:10px;">
+          <strong style="font-size:0.75rem;color:var(--teal-dark);">Seller reply</strong>
+          <p class="muted" style="margin:2px 0 0;font-size:0.8rem;">${escapeHtml(reply.reply_text)}</p>
+        </div>`
+      : (isOwnProductSeller ? `
+        <button class="link-btn" data-reply-toggle="${r.id}" style="margin-top:6px;padding:0;">Reply</button>
+        <div id="replyBox-${r.id}" style="display:none;margin-top:6px;">
+          <textarea id="replyText-${r.id}" rows="2" placeholder="Write a public reply…" style="width:100%;padding:8px 10px;border:1px solid #dddfe4;border-radius:10px;font:inherit;"></textarea>
+          <button class="mini-btn primary" data-reply-submit="${r.id}" style="margin-top:6px;">Post reply</button>
+        </div>` : '')}
+    </div>`;
+}
+
+async function renderProductReviews(productId){
+  const body = $('#pdpReviewsBody');
+  if (!body) return;
+  body.innerHTML = `<p class="muted">Loading reviews…</p>`;
+
+  const { data: reviews, error } = await sb.from('reviews')
+    .select('id, rating, review_text, image_urls, buyer_id, created_at, profiles(full_name), review_replies(id, reply_text, created_at)')
+    .eq('product_id', productId)
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    // Table probably doesn't exist yet — degrade gracefully instead of breaking the PDP.
+    body.innerHTML = /relation|does not exist|schema cache/i.test(error.message)
+      ? `<p class="muted">Reviews aren't set up on this database yet.</p>`
+      : `<p class="muted" style="color:var(--brick);">Could not load reviews: ${escapeHtml(error.message)}</p>`;
+    return;
+  }
+
+  const list = reviews || [];
+  const count = list.length;
+  const avg = count ? (list.reduce((s,r) => s + Number(r.rating||0), 0) / count).toFixed(1) : null;
+  const product = PRODUCTS.find(x => x.id === productId);
+  const isOwnProductSeller = !!(authState.user && product?.sellerId === authState.user.id);
+  const myReview = authState.user ? list.find(r => r.buyer_id === authState.user.id) : null;
+
+  const summaryHtml = `<div style="display:flex;align-items:baseline;gap:8px;margin-bottom:14px;">
+    <span style="font-size:1.6rem;font-weight:800;">${avg ?? '—'}</span>
+    <span class="muted">${count} review${count === 1 ? '' : 's'}</span>
+  </div>`;
+
+  let formHtml = '';
+  let eligibleOrderItemId = null;
+  if (!authState.user) {
+    formHtml = `<p class="muted" style="margin-bottom:14px;">Sign in and complete a purchase to write a review.</p>`;
+  } else if (myReview) {
+    formHtml = reviewFormHtml({ mode: 'edit', existing: myReview });
+  } else if (isOwnProductSeller) {
+    formHtml = ''; // sellers don't review their own products
+  } else {
+    const { data: myOrderItems } = await sb.from('order_items')
+      .select('id, orders!inner(user_id, status)')
+      .eq('product_id', productId)
+      .eq('orders.user_id', authState.user.id)
+      .eq('orders.status', 'delivered');
+    eligibleOrderItemId = (myOrderItems && myOrderItems.length) ? myOrderItems[0].id : null;
+    formHtml = eligibleOrderItemId
+      ? reviewFormHtml({ mode: 'new', orderItemId: eligibleOrderItemId })
+      : `<p class="muted" style="margin-bottom:14px;">Only buyers who've received this product can leave a review.</p>`;
+  }
+
+  const listHtml = list.length
+    ? list.map(r => reviewCardHtml(r, isOwnProductSeller)).join('')
+    : `<p class="muted">No reviews yet — be the first!</p>`;
+
+  body.innerHTML = summaryHtml + `<div id="pdpReviewForm">${formHtml}</div>` + `<div id="pdpReviewList">${listHtml}</div>`;
+  reviewDraft = { rating: myReview ? Number(myReview.rating) : 0, images: [] };
+  if (myReview || eligibleOrderItemId) syncStarRowUI();
+}
+
+function reviewFormHtml({ mode, existing, orderItemId }){
+  const rating = existing ? Number(existing.rating) : 0;
+  const text = existing ? (existing.review_text || '') : '';
+  return `
+    <div id="reviewFormBox" style="padding:12px;border:1px solid var(--line);border-radius:12px;margin-bottom:14px;"
+      data-mode="${mode}" data-review-id="${existing ? existing.id : ''}" data-order-item-id="${orderItemId || ''}">
+      <strong style="font-size:0.85rem;">${mode === 'edit' ? 'Your review' : 'Write a review'}</strong>
+      <div id="reviewStarRow" style="margin:6px 0;">${starRowHtml(rating, true)}</div>
+      <textarea id="reviewTextInput" rows="3" placeholder="Share your experience with this product…" style="width:100%;padding:9px 11px;border:1px solid #dddfe4;border-radius:10px;font:inherit;">${escapeHtml(text)}</textarea>
+      <div id="reviewImagePreviews" style="display:flex;gap:6px;margin:8px 0;flex-wrap:wrap;"></div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <button type="button" class="mini-btn" id="reviewAddImageBtn">+ Add photo</button>
+        <input type="file" id="reviewImageInput" accept="image/*" multiple hidden>
+        <button type="button" class="mini-btn primary" id="reviewSubmitBtn" style="margin-left:auto;">${mode === 'edit' ? 'Update review' : 'Submit review'}</button>
+      </div>
+    </div>`;
+}
+
+function syncStarRowUI(){
+  const row = $('#reviewStarRow');
+  if (!row) return;
+  row.querySelectorAll('[data-star-select]').forEach(btn => {
+    const v = Number(btn.dataset.starSelect);
+    btn.style.color = v <= reviewDraft.rating ? 'var(--teal)' : '#D8DCE1';
+  });
+  wireReviewFormEvents();
+}
+
+function wireReviewFormEvents(){
+  const addBtn = $('#reviewAddImageBtn');
+  const fileInput = $('#reviewImageInput');
+  if (addBtn && fileInput && !addBtn._wired) {
+    addBtn._wired = true;
+    addBtn.onclick = () => fileInput.click();
+    fileInput.onchange = e => {
+      [...(e.target.files || [])].slice(0, 4 - reviewDraft.images.length).forEach(file => {
+        if (!file.type.startsWith('image/')) return;
+        reviewDraft.images.push({ file, previewUrl: URL.createObjectURL(file) });
+      });
+      fileInput.value = '';
+      renderReviewImagePreviews();
+    };
+  }
+  const submitBtn = $('#reviewSubmitBtn');
+  if (submitBtn && !submitBtn._wired) {
+    submitBtn._wired = true;
+    submitBtn.onclick = submitReview;
+  }
+  renderReviewImagePreviews();
+}
+
+function renderReviewImagePreviews(){
+  const wrap = $('#reviewImagePreviews');
+  if (!wrap) return;
+  wrap.innerHTML = reviewDraft.images.map((img, i) => `
+    <div style="position:relative;width:52px;height:52px;">
+      <img src="${img.previewUrl}" style="width:100%;height:100%;object-fit:cover;border-radius:8px;">
+      <button type="button" data-review-remove-image="${i}" style="position:absolute;top:-6px;right:-6px;width:18px;height:18px;border-radius:50%;border:none;background:var(--brick);color:#fff;font-size:0.7rem;line-height:1;">×</button>
+    </div>`).join('');
+}
+
+async function submitReview(){
+  if (!authState.user) { toast('Sign in to review'); return; }
+  const box = $('#reviewFormBox');
+  if (!box) return;
+  const mode = box.dataset.mode;
+  const reviewId = box.dataset.reviewId;
+  const orderItemId = box.dataset.orderItemId;
+  const productId = state.currentProductId;
+  if (!reviewDraft.rating) { toast('Please select a star rating'); return; }
+
+  const btn = $('#reviewSubmitBtn');
+  btn.disabled = true; btn.textContent = 'Saving…';
+  try {
+    const uploaded = await Promise.all(
+      reviewDraft.images.map(img => window.ORHANO_V4.uploadProductImage(img.file, 'review-' + productId))
+    );
+    const reviewText = $('#reviewTextInput').value.trim();
+
+    if (mode === 'edit') {
+      const { error } = await sb.from('reviews').update({
+        rating: reviewDraft.rating,
+        review_text: reviewText || null,
+        image_urls: uploaded.length ? uploaded : undefined,
+        updated_at: new Date().toISOString()
+      }).eq('id', reviewId).eq('buyer_id', authState.user.id);
+      if (error) throw error;
+      toast('Review updated');
+    } else {
+      const { error } = await sb.from('reviews').insert({
+        product_id: productId,
+        order_item_id: Number(orderItemId),
+        buyer_id: authState.user.id,
+        rating: reviewDraft.rating,
+        review_text: reviewText || null,
+        image_urls: uploaded
+      });
+      if (error) throw error;
+      toast('Review submitted');
+    }
+    await renderProductReviews(productId);
+  } catch (err) {
+    const msg = /relation|does not exist|schema cache/i.test(err.message || '')
+      ? 'Reviews aren\'t set up on this database yet — see the report for the required SQL.'
+      : 'Could not save review: ' + err.message;
+    toast(msg);
+    btn.disabled = false; btn.textContent = mode === 'edit' ? 'Update review' : 'Submit review';
+  }
+}
+
+async function submitSellerReply(reviewId){
+  if (!authState.user) return;
+  const textEl = $('#replyText-' + reviewId);
+  const text = textEl ? textEl.value.trim() : '';
+  if (!text) { toast('Write a reply first'); return; }
+  const { error } = await sb.from('review_replies').insert({
+    review_id: Number(reviewId), seller_id: authState.user.id, reply_text: text
+  });
+  if (error) { toast('Could not post reply: ' + error.message); return; }
+  toast('Reply posted');
+  await renderProductReviews(state.currentProductId);
 }
 
 /* ---------- render: categories ---------- */
@@ -2554,6 +2783,19 @@ async function renderAdmin(){
         `}
       </div>`).join('')
     : `<p class="muted">No orders yet.</p>`;
+
+  // Reviews moderation (req #11). Degrade gracefully if the reviews table
+  // hasn't been created yet (see report for the SQL).
+  const { data: reviewsData, error: reviewsErr } = await sb.from('reviews')
+    .select('id, rating, review_text, created_at, product_id, profiles(full_name), products(name)')
+    .order('created_at', { ascending: false }).limit(30);
+  $('#adminReviews').innerHTML = reviewsErr
+    ? (/relation|does not exist|schema cache/i.test(reviewsErr.message) ? `<p class="muted">Reviews aren't set up on this database yet.</p>` : `<p class="muted" style="color:var(--brick);">Could not load reviews: ${escapeHtml(reviewsErr.message)}</p>`)
+    : (reviewsData && reviewsData.length) ? reviewsData.map(r => `
+      <div class="admin-row">
+        <div class="pcard-name" style="flex:1;">${'★'.repeat(Number(r.rating))}${'☆'.repeat(5-Number(r.rating))} · ${escapeHtml(r.products?.name || 'Deleted product')}<br><span class="pcard-meta">${escapeHtml(r.profiles?.full_name || 'Buyer')}${r.review_text ? ' · ' + escapeHtml(r.review_text.slice(0,80)) : ''}</span></div>
+        <button class="mini-btn danger" data-admin-review-delete="${r.id}">Remove</button>
+      </div>`).join('') : `<p class="muted">No reviews yet.</p>`;
 }
 
 
@@ -3715,6 +3957,30 @@ document.addEventListener('click', async e => {
     return goto('cart');
   }
 
+  const starSelectBtn = e.target.closest('[data-star-select]');
+  if (starSelectBtn) {
+    reviewDraft.rating = Number(starSelectBtn.dataset.starSelect);
+    syncStarRowUI();
+    return;
+  }
+
+  const reviewRemoveImageBtn = e.target.closest('[data-review-remove-image]');
+  if (reviewRemoveImageBtn) {
+    reviewDraft.images.splice(Number(reviewRemoveImageBtn.dataset.reviewRemoveImage), 1);
+    renderReviewImagePreviews();
+    return;
+  }
+
+  const replyToggleBtn = e.target.closest('[data-reply-toggle]');
+  if (replyToggleBtn) {
+    const box = $('#replyBox-' + replyToggleBtn.dataset.replyToggle);
+    if (box) box.style.display = box.style.display === 'none' ? 'block' : 'none';
+    return;
+  }
+
+  const replySubmitBtn = e.target.closest('[data-reply-submit]');
+  if (replySubmitBtn) return submitSellerReply(replySubmitBtn.dataset.replySubmit);
+
   const pcardEl = e.target.closest('.pcard[data-id]');
   if (pcardEl) return openProduct(Number(pcardEl.dataset.id));
 
@@ -3830,6 +4096,17 @@ document.addEventListener('click', async e => {
     if (!data || data.length === 0) { toast('Seller application not rejected — a Supabase RLS/trigger policy is likely blocking this UPDATE for admins.'); return; }
     toast('Seller application rejected');
     renderAdmin();
+    return;
+  }
+
+  const adminReviewDeleteBtn = e.target.closest('[data-admin-review-delete]');
+  if (adminReviewDeleteBtn) {
+    const id = adminReviewDeleteBtn.dataset.adminReviewDelete;
+    const { error } = await sb.from('reviews').delete().eq('id', id);
+    if (error) { toast('Could not remove review: ' + error.message); return; }
+    toast('Review removed');
+    renderAdmin();
+    if (state.view === 'product') renderProductReviews(state.currentProductId);
     return;
   }
 

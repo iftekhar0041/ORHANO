@@ -378,7 +378,7 @@ button{font-family:inherit;cursor:pointer;}
   width:30px;height:30px;border-radius:50%;border:none;background:var(--bg);
   display:flex;align-items:center;justify-content:center;font-size:1rem;color:var(--ink);flex-shrink:0;
 }
-.chat-thread-body{padding:14px 16px 80px; display:flex; flex-direction:column; gap:10px; min-height:200px;}
+.chat-thread-body{padding:14px 16px 90px; display:flex; flex-direction:column; gap:10px; min-height:200px; height:calc(100vh - 64px - 58px); overflow-y:auto; -webkit-overflow-scrolling:touch;}
 .chat-bubble{
   max-width:78%; padding:9px 12px; border-radius:16px; font-size:0.85rem; line-height:1.4;
   word-wrap:break-word; white-space:pre-wrap;
@@ -403,6 +403,38 @@ button{font-family:inherit;cursor:pointer;}
 .chat-send-btn:disabled{opacity:.5;}
 .chat-conv-row{display:flex; gap:10px; align-items:center; padding:12px 16px; border-bottom:1px solid var(--line); cursor:pointer;}
 .chat-conv-unread{background:var(--teal); color:#fff; border-radius:999px; font-size:0.68rem; font-weight:700; padding:2px 7px; min-width:18px; text-align:center;}
+
+.chat-attach-btn{
+  flex-shrink:0; width:38px;height:38px;border-radius:50%;border:none;
+  background:var(--bg); color:var(--ink); display:flex; align-items:center; justify-content:center;
+  font-size:1.3rem; font-weight:700; transition:transform .15s;
+}
+.chat-attach-btn.open{transform:rotate(45deg); background:var(--brick); color:#fff;}
+.chat-attach-panel{
+  position:fixed; left:0; right:0; bottom:calc(64px + 58px); z-index:24;
+  max-width:1200px; margin:0 auto; background:var(--card); border-top:1px solid var(--line);
+  display:flex; gap:22px; padding:18px 20px; justify-content:center;
+}
+.chat-attach-option{display:flex; flex-direction:column; align-items:center; gap:6px; border:none; background:none; font-size:0.72rem; color:var(--ink-soft); font-weight:600;}
+.chat-attach-icon{width:52px;height:52px;border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:1.4rem; color:#fff;}
+.chat-attach-icon.camera{background:#4A90E2;}
+.chat-attach-icon.photos{background:#E24A4A;}
+.chat-attach-icon.products{background:#E2A24A;}
+.chat-attach-icon.orders{background:#2E9E6B;}
+
+.chat-bubble-image{max-width:100%; border-radius:12px; display:block; margin-top:2px;}
+.chat-attach-card{
+  display:flex; gap:8px; align-items:center; background:rgba(255,255,255,.18);
+  border-radius:10px; padding:6px; margin-bottom:4px; cursor:pointer;
+}
+.chat-bubble.theirs .chat-attach-card{background:#fff; border:1px solid var(--line);}
+.chat-attach-card-thumb{width:40px;height:40px;border-radius:8px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:1.2rem;background:var(--line);overflow:hidden;}
+.chat-attach-card-thumb img{width:100%;height:100%;object-fit:cover;}
+.chat-attach-card-body{min-width:0;}
+.chat-attach-card-body strong{display:block;font-size:0.78rem;line-height:1.3;}
+.chat-attach-card-body span{font-size:0.7rem;opacity:.85;}
+.chat-picker-row{display:flex; gap:10px; align-items:center; padding:10px 4px; border-bottom:1px solid var(--line); cursor:pointer;}
+.chat-picker-row:last-child{border-bottom:none;}
 
 /* ---------- bottom nav ---------- */
 .bottomnav{
@@ -726,11 +758,11 @@ html,body{width:100%;max-width:100%;overflow-x:hidden;-webkit-text-size-adjust:1
 
   <!-- ===================== MESSAGES VIEW ===================== -->
   <main id="view-messages" class="view">
-    <h2 class="page-title">Updates</h2>
+    <h2 class="page-title">Messages</h2>
     <div class="tab-row">
-      <button class="tab active" data-mtab="alerts">Alerts</button>
+      <button class="tab active" data-mtab="chat">Chats</button>
       <button class="tab" data-mtab="orders">Orders</button>
-      <button class="tab" data-mtab="chat">Chat</button>
+      <button class="tab" data-mtab="alerts">Alerts</button>
     </div>
     <div id="messagesList" class="messages-list"></div>
   </main>
@@ -986,7 +1018,7 @@ html,body{width:100%;max-width:100%;overflow-x:hidden;-webkit-text-size-adjust:1
   </button>
   <button class="navbtn" data-nav="messages">
     <svg viewBox="0 0 24 24" fill="none"><path d="M4 5h16v11H8l-4 4V5Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
-    <span>Updates</span>
+    <span>Messages</span>
     <span class="dot" id="msgDot"></span>
   </button>
   <button class="navbtn" data-nav="account">
@@ -1214,7 +1246,7 @@ const state = {
   cart: {},          // id -> qty
   searchQuery: '',
   activeFilter: 'all',
-  msgTab: 'alerts',
+  msgTab: 'chat',
   currency: localStorage.getItem('orhano_currency') || guessDefaultCurrency(),
   wishlist: new Set(),      // product ids
   followedShops: new Set(), // seller (profile) ids
@@ -1816,12 +1848,22 @@ async function renderChatThread(conversationId){
       </div>
     </div>
     <div class="chat-thread-body" id="chatThreadBody"></div>
+    <div class="chat-attach-panel" id="chatAttachPanel" hidden>
+      <button type="button" class="chat-attach-option" id="chatAttachCamera"><span class="chat-attach-icon camera">📷</span>Camera</button>
+      <button type="button" class="chat-attach-option" id="chatAttachPhotos"><span class="chat-attach-icon photos">🖼️</span>Photos</button>
+      <button type="button" class="chat-attach-option" id="chatAttachProducts"><span class="chat-attach-icon products">📦</span>Products</button>
+      <button type="button" class="chat-attach-option" id="chatAttachOrders"><span class="chat-attach-icon orders">🧾</span>Orders</button>
+    </div>
+    <input type="file" id="chatCameraInput" accept="image/*" capture="environment" hidden>
+    <input type="file" id="chatPhotosInput" accept="image/*" hidden>
     <div class="chat-input-bar">
+      <button type="button" class="chat-attach-btn" id="chatAttachToggle" aria-label="Attach">+</button>
       <textarea id="chatMessageInput" rows="1" placeholder="Write a message…"></textarea>
       <button class="chat-send-btn" id="chatSendBtn" aria-label="Send message">➤</button>
     </div>`;
   applyAvatar($('#chatThreadAvatar'), otherName, other?.avatar_url);
   renderChatMessages(messages || [], authState.user.id);
+  wireChatAttachments(conversationId, conv.seller_id, conv.buyer_id);
 
   $('#chatSendBtn').onclick = sendChatMessage;
   $('#chatMessageInput').addEventListener('keydown', e => {
@@ -1836,13 +1878,78 @@ function renderChatMessages(messages, myId){
   if (!body) return;
   body.innerHTML = messages.length ? messages.map(m => chatBubbleHtml(m, myId)).join('')
     : `<p class="muted" style="text-align:center;margin-top:30px;">No messages yet — say hello!</p>`;
-  body.scrollTop = body.scrollHeight;
+  scrollChatToBottom(true);
+}
+
+function scrollChatToBottom(force){
+  const body = $('#chatThreadBody');
+  if (!body) return;
+  const nearBottom = body.scrollHeight - body.scrollTop - body.clientHeight < 120;
+  if (!force && !nearBottom) return;
+  requestAnimationFrame(() => { body.scrollTop = body.scrollHeight; });
 }
 
 function chatBubbleHtml(m, myId){
   const mine = m.sender_id === myId;
   const time = m.created_at ? new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
-  return `<div class="chat-bubble ${mine ? 'mine' : 'theirs'}" data-msg-id="${m.id}">${escapeHtml(m.body)}<span class="chat-bubble-time">${time}${mine ? (m.read_at ? ' · Seen' : ' · Sent') : ''}</span></div>`;
+  let attachmentHtml = '';
+  const d = m.attachment_data;
+  if (m.attachment_type === 'image' && d?.url) {
+    attachmentHtml = `<img src="${escapeHtml(d.url)}" class="chat-bubble-image" alt="Photo">`;
+  } else if (m.attachment_type === 'product' && d) {
+    attachmentHtml = `<div class="chat-attach-card" data-open-product="${d.id}">
+      <div class="chat-attach-card-thumb" style="background:${d.bg || 'var(--line)'}">${d.image_url ? `<img src="${escapeHtml(d.image_url)}" alt="">` : (d.emoji || '📦')}</div>
+      <div class="chat-attach-card-body"><strong>${escapeHtml(d.name || 'Product')}</strong><span>${d.price != null ? money(Number(d.price)) : ''}</span></div>
+    </div>`;
+  } else if (m.attachment_type === 'order' && d) {
+    attachmentHtml = `<div class="chat-attach-card" data-open-order="${d.id}">
+      <div class="chat-attach-card-thumb">🧾</div>
+      <div class="chat-attach-card-body"><strong>Order #${d.id}</strong><span>${d.item_count || 0} item${d.item_count === 1 ? '' : 's'}${d.total != null ? ' · ' + money(Number(d.total)) : ''}</span></div>
+    </div>`;
+  }
+  const textPart = m.body ? escapeHtml(m.body) : '';
+  return `<div class="chat-bubble ${mine ? 'mine' : 'theirs'}" data-msg-id="${m.id}">${attachmentHtml}${textPart}<span class="chat-bubble-time">${time}${mine ? (m.read_at ? ' · Seen' : ' · Sent') : ''}</span></div>`;
+}
+
+async function insertChatRow(conversationId, fields, previewText){
+  const { data: inserted, error } = await sb.from('messages').insert({
+    conversation_id: conversationId,
+    sender_id: authState.user.id, // always the authenticated user — never settable by the caller
+    body: '',
+    ...fields
+  }).select('id, sender_id, body, created_at, read_at, attachment_type, attachment_data').single();
+
+  if (error) {
+    const msg = error.message || '';
+    let friendly;
+    if (/relation .* does not exist/i.test(msg)) {
+      friendly = "Chat isn't set up on this database yet — see the report for the required SQL.";
+    } else if (fields.attachment_type && /column|schema cache/i.test(msg)) {
+      friendly = 'Sharing photos/products/orders needs a small database update first — see the report for the required SQL.';
+    } else if (/permission|policy|rls/i.test(msg)) {
+      friendly = 'You do not have permission to send in this conversation.';
+    } else {
+      friendly = 'Could not send: ' + msg;
+    }
+    toast(friendly);
+    return null;
+  }
+
+  const body = $('#chatThreadBody');
+  if (body && state.view === 'chatThread' && state.currentConversationId === conversationId) {
+    const empty = body.querySelector('p.muted');
+    if (empty) empty.remove();
+    if (!body.querySelector(`[data-msg-id="${inserted.id}"]`)) {
+      body.insertAdjacentHTML('beforeend', chatBubbleHtml(inserted, authState.user.id));
+      scrollChatToBottom(true);
+    }
+  }
+
+  await sb.from('conversations').update({
+    last_message_at: inserted.created_at, last_message_text: (previewText || '').slice(0, 120)
+  }).eq('id', conversationId);
+
+  return inserted;
 }
 
 let sendingChatMessage = false;
@@ -1860,44 +1967,121 @@ async function sendChatMessage(){
   sendingChatMessage = true;
   if (sendBtn) sendBtn.disabled = true;
 
-  const { data: inserted, error } = await sb.from('messages').insert({
-    conversation_id: conversationId,
-    sender_id: authState.user.id, // always the authenticated user — never settable by the caller
-    body: text
-  }).select('id, sender_id, body, created_at, read_at').single();
-
-  if (error) {
-    toast(/relation|does not exist|schema cache/i.test(error.message)
-      ? "Chat isn't set up on this database yet — see the report for the required SQL."
-      : /permission|policy|rls/i.test(error.message)
-        ? 'You do not have permission to send in this conversation.'
-        : 'Could not send: ' + error.message);
-    sendingChatMessage = false;
-    if (sendBtn) sendBtn.disabled = false;
-    return;
-  }
-
-  // Clear the input only now that the send actually succeeded.
-  input.value = '';
-
-  // Show the sent message immediately — this does not depend on Realtime,
-  // which is intentionally not used for this step (see report, Task 6D).
-  const body = $('#chatThreadBody');
-  if (body && state.view === 'chatThread' && state.currentConversationId === conversationId) {
-    const empty = body.querySelector('p.muted');
-    if (empty) empty.remove();
-    if (!body.querySelector(`[data-msg-id="${inserted.id}"]`)) {
-      body.insertAdjacentHTML('beforeend', chatBubbleHtml(inserted, authState.user.id));
-      body.scrollTop = body.scrollHeight;
-    }
-  }
-
-  await sb.from('conversations').update({
-    last_message_at: inserted.created_at, last_message_text: text.slice(0, 120)
-  }).eq('id', conversationId);
+  const inserted = await insertChatRow(conversationId, { body: text }, text);
+  if (inserted) input.value = ''; // clear only now that the send actually succeeded
 
   sendingChatMessage = false;
   if (sendBtn) sendBtn.disabled = false;
+}
+
+async function sendChatAttachment(type, data, previewText){
+  const conversationId = state.currentConversationId;
+  if (!authState.user) { toast('Sign in to send messages'); return; }
+  if (!conversationId) { toast('This chat is not available'); return; }
+  closeChatAttachPanel();
+  await insertChatRow(conversationId, { attachment_type: type, attachment_data: data }, previewText);
+}
+
+function closeChatAttachPanel(){
+  const panel = $('#chatAttachPanel');
+  const toggleBtn = $('#chatAttachToggle');
+  if (panel) panel.hidden = true;
+  if (toggleBtn) toggleBtn.classList.remove('open');
+}
+
+function wireChatAttachments(conversationId, sellerId, buyerId){
+  const toggleBtn = $('#chatAttachToggle');
+  const panel = $('#chatAttachPanel');
+  if (toggleBtn && panel) {
+    toggleBtn.onclick = () => {
+      const willOpen = panel.hidden;
+      panel.hidden = !willOpen;
+      toggleBtn.classList.toggle('open', willOpen);
+    };
+  }
+
+  const cameraInput = $('#chatCameraInput');
+  const photosInput = $('#chatPhotosInput');
+  const handleImageFile = async file => {
+    if (!file) return;
+    closeChatAttachPanel();
+    toast('Uploading photo…');
+    try {
+      if (!window.ORHANO_V4?.uploadProductImage) throw new Error('Photo upload is unavailable right now.');
+      const url = await window.ORHANO_V4.uploadProductImage(file, 'chat');
+      await sendChatAttachment('image', { url }, '📷 Photo');
+    } catch (err) {
+      toast('Could not send photo: ' + (err.message || err));
+    }
+  };
+  if ($('#chatAttachCamera')) $('#chatAttachCamera').onclick = () => cameraInput?.click();
+  if ($('#chatAttachPhotos')) $('#chatAttachPhotos').onclick = () => photosInput?.click();
+  if (cameraInput) cameraInput.onchange = e => handleImageFile(e.target.files[0]);
+  if (photosInput) photosInput.onchange = e => handleImageFile(e.target.files[0]);
+
+  if ($('#chatAttachProducts')) $('#chatAttachProducts').onclick = () => openChatProductPicker(sellerId);
+  if ($('#chatAttachOrders')) $('#chatAttachOrders').onclick = () => openChatOrderPicker(sellerId, buyerId);
+}
+
+function openChatProductPicker(sellerId){
+  if (!window.ORHANO_V4?.modal) return;
+  closeChatAttachPanel();
+  const items = PRODUCTS.filter(p => p.sellerId === sellerId);
+  const bodyHtml = items.length
+    ? items.map(p => `<div class="chat-picker-row" data-pick-product="${p.id}">
+        <div class="chat-attach-card-thumb" style="background:${p.bg}">${p.imageUrl ? `<img src="${escapeHtml(p.imageUrl)}" alt="">` : p.emoji}</div>
+        <div class="chat-attach-card-body"><strong>${escapeHtml(p.name)}</strong><span>${money(p.price)}</span></div>
+      </div>`).join('')
+    : `<p class="muted">No products to share yet.</p>`;
+  window.ORHANO_V4.modal('Share a product', bodyHtml, el => {
+    el.querySelectorAll('[data-pick-product]').forEach(row => {
+      row.onclick = () => {
+        const p = items.find(x => String(x.id) === row.dataset.pickProduct);
+        if (!p) return;
+        window.ORHANO_V4.closeModal();
+        sendChatAttachment('product', { id: p.id, name: p.name, price: p.price, image_url: p.imageUrl, emoji: p.emoji, bg: p.bg }, '📦 ' + p.name);
+      };
+    });
+  });
+}
+
+function openChatOrderPicker(sellerId, buyerId){
+  if (!window.ORHANO_V4?.modal || !authState.user) return;
+  closeChatAttachPanel();
+  const isMeBuyer = authState.user.id === buyerId;
+  window.ORHANO_V4.modal('Share an order', `<p class="muted">Loading orders…</p>`, async el => {
+    const bodyEl = el.querySelector('#v4Body');
+    const { data, error } = await sb.from('orders')
+      .select('id, total, status, created_at, order_items(quantity, product_id)')
+      .eq('user_id', buyerId)
+      .order('created_at', { ascending: false }).limit(10);
+    if (!bodyEl) return;
+    if (error) {
+      bodyEl.innerHTML = `<p class="muted" style="color:var(--brick);">Could not load orders: ${escapeHtml(error.message)}</p>`;
+      return;
+    }
+    // For a seller, only offer orders that actually include one of their own products.
+    const orders = isMeBuyer ? (data || []) : (data || []).filter(o =>
+      (o.order_items || []).some(it => PRODUCTS.find(p => p.id === it.product_id)?.sellerId === sellerId));
+    bodyEl.innerHTML = orders.length
+      ? orders.map(o => {
+          const itemCount = (o.order_items || []).reduce((s, it) => s + Number(it.quantity || 0), 0);
+          return `<div class="chat-picker-row" data-pick-order="${o.id}">
+            <div class="chat-attach-card-thumb">🧾</div>
+            <div class="chat-attach-card-body"><strong>Order #${o.id}</strong><span>${itemCount} item${itemCount === 1 ? '' : 's'} · ${money(Number(o.total))} · ${escapeHtml(o.status || '')}</span></div>
+          </div>`;
+        }).join('')
+      : `<p class="muted">No orders to share yet.</p>`;
+    bodyEl.querySelectorAll('[data-pick-order]').forEach(row => {
+      row.onclick = () => {
+        const o = orders.find(x => String(x.id) === row.dataset.pickOrder);
+        if (!o) return;
+        const itemCount = (o.order_items || []).reduce((s, it) => s + Number(it.quantity || 0), 0);
+        window.ORHANO_V4.closeModal();
+        sendChatAttachment('order', { id: o.id, total: o.total, item_count: itemCount, status: o.status }, '🧾 Order #' + o.id);
+      };
+    });
+  });
 }
 
 async function markConversationRead(conversationId){
@@ -1934,7 +2118,7 @@ function subscribeToChatRealtime(){
           const empty = body.querySelector('p.muted');
           if (empty) empty.remove();
           body.insertAdjacentHTML('beforeend', chatBubbleHtml(m, authState.user.id));
-          body.scrollTop = body.scrollHeight;
+          scrollChatToBottom(mine);
         }
         if (!mine) markConversationRead(m.conversation_id); // only marks read because this exact thread is open
       } else if (!mine) {
@@ -5310,7 +5494,7 @@ init();
   // Expose useful controls for future ChatGPT/Claude edits.
   window.ORHANO_V4 = {
     openCheckout, openSellerProductEditor, openAdminSettings,
-    uploadProductImage, refresh: async()=>{ await loadProductsFromDB(); renderHomeLists(); }
+    uploadProductImage, modal, closeModal, refresh: async()=>{ await loadProductsFromDB(); renderHomeLists(); }
   };
 
   // NOTE (fix): product photos now render directly inside productCard() in

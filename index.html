@@ -709,7 +709,7 @@ html,body{width:100%;max-width:100%;overflow-x:hidden;-webkit-text-size-adjust:1
   <main id="view-store" class="view"></main>
 
   <!-- ===================== CHAT THREAD VIEW ===================== -->
-  <main id="view-chat-thread" class="view"></main>
+  <main id="view-chatThread" class="view"></main>
 
   <!-- ===================== CART VIEW ===================== -->
   <main id="view-cart" class="view">
@@ -1761,7 +1761,7 @@ async function openOrCreateConversation(sellerId, productId){
 }
 
 async function renderChatThread(conversationId){
-  const wrap = $('#view-chat-thread');
+  const wrap = $('#view-chatThread');
   if (!conversationId || !authState.user) {
     wrap.innerHTML = `<p class="page-title">Chat not available.</p><button class="btn-primary" style="margin:0 16px;" data-goto="messages">Back to messages</button>`;
     return;
@@ -1923,7 +1923,10 @@ function subscribeToChatRealtime(){
     .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, payload => {
       const m = payload.new;
       const mine = authState.user && m.sender_id === authState.user.id;
-      const threadOpen = state.view === 'chatThread' && state.currentConversationId === m.conversation_id;
+      // Realtime delivers bigint columns (conversation_id) as strings, while
+      // state.currentConversationId is a JS number — compare as strings so
+      // this never silently fails to match the open thread.
+      const threadOpen = state.view === 'chatThread' && String(state.currentConversationId) === String(m.conversation_id);
 
       if (threadOpen) {
         const body = $('#chatThreadBody');
@@ -1957,17 +1960,19 @@ function unsubscribeChatRealtime(){
   chatRealtimeUserId = null;
 }
 
+let hasUnreadChat = false;
 async function updateMsgDot(){
   const dot = $('#msgDot');
   if (!dot) return;
-  if (!authState.user) { dot.style.display = 'none'; return; }
+  if (!authState.user) { dot.style.display = 'none'; hasUnreadChat = false; return; }
   // RLS already limits this to messages in conversations I'm part of, so no
   // extra join is needed here — see the "Participants can read messages" policy.
   const { count, error } = await sb.from('messages')
     .select('id', { count: 'exact', head: true })
     .is('read_at', null)
     .neq('sender_id', authState.user.id);
-  dot.style.display = (!error && count) ? 'block' : 'none';
+  hasUnreadChat = !error && !!count;
+  dot.style.display = hasUnreadChat ? 'block' : 'none';
 }
 
 async function renderConversationList(){
@@ -4233,7 +4238,13 @@ function showFeedback(){
 /* ---------- wire up events ---------- */
 document.addEventListener('click', async e => {
   const navBtn = e.target.closest('[data-nav]');
-  if (navBtn) return goto(navBtn.dataset.nav);
+  if (navBtn) {
+    if (navBtn.dataset.nav === 'messages' && hasUnreadChat) {
+      state.msgTab = 'chat';
+      document.querySelectorAll('.tab[data-mtab]').forEach(t => t.classList.toggle('active', t.dataset.mtab === 'chat'));
+    }
+    return goto(navBtn.dataset.nav);
+  }
 
   const gotoBtn = e.target.closest('[data-goto]');
   if (gotoBtn) {

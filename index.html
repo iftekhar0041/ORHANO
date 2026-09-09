@@ -79,6 +79,7 @@ button{font-family:inherit;cursor:pointer;}
   display:flex; align-items:center; justify-content:center;
   font-size:0.9rem; line-height:1; padding:0;
 }
+.search-clear-btn[hidden]{display:none;}
 .search-clear-btn:active{background:var(--ink);}
 .icon-btn{
   width:34px;height:34px;border-radius:50%;
@@ -415,12 +416,31 @@ button{font-family:inherit;cursor:pointer;}
   max-width:1200px; margin:0 auto; background:var(--card); border-top:1px solid var(--line);
   display:flex; gap:22px; padding:18px 20px; justify-content:center;
 }
+.chat-attach-panel[hidden]{display:none;}
 .chat-attach-option{display:flex; flex-direction:column; align-items:center; gap:6px; border:none; background:none; font-size:0.72rem; color:var(--ink-soft); font-weight:600;}
 .chat-attach-icon{width:52px;height:52px;border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:1.4rem; color:#fff;}
 .chat-attach-icon.camera{background:#4A90E2;}
 .chat-attach-icon.photos{background:#E24A4A;}
 .chat-attach-icon.products{background:#E2A24A;}
 .chat-attach-icon.orders{background:#2E9E6B;}
+
+.chat-emoji-btn{flex-shrink:0; width:34px;height:34px;border:none;background:none;font-size:1.3rem;display:flex;align-items:center;justify-content:center;}
+.chat-emoji-panel{
+  position:fixed; left:0; right:0; bottom:calc(64px + 58px); z-index:24;
+  max-width:1200px; margin:0 auto; background:var(--card); border-top:1px solid var(--line);
+  display:grid; grid-template-columns:repeat(8,1fr); gap:4px; padding:12px 14px; max-height:180px; overflow-y:auto;
+}
+.chat-emoji-panel[hidden]{display:none;}
+.chat-emoji-panel button{border:none;background:none;font-size:1.35rem;padding:5px 0;border-radius:8px;}
+.chat-emoji-panel button:active{background:var(--bg);}
+
+.chat-edit-banner{
+  position:fixed; left:0; right:0; bottom:calc(64px + 58px); z-index:26;
+  max-width:1200px; margin:0 auto; background:#FFF3CD; color:#7A5B00;
+  font-size:0.75rem; font-weight:600; padding:7px 16px;
+  display:flex; justify-content:space-between; align-items:center;
+}
+.chat-edit-banner button{border:none;background:none;color:#7A5B00;font-weight:800;font-size:0.75rem;}
 
 .chat-bubble-image{max-width:100%; border-radius:12px; display:block; margin-top:2px;}
 .chat-attach-card{
@@ -1794,6 +1814,7 @@ async function openOrCreateConversation(sellerId, productId){
 
 async function renderChatThread(conversationId){
   const wrap = $('#view-chatThread');
+  editingMessageId = null;
   if (!conversationId || !authState.user) {
     wrap.innerHTML = `<p class="page-title">Chat not available.</p><button class="btn-primary" style="margin:0 16px;" data-goto="messages">Back to messages</button>`;
     return;
@@ -1854,16 +1875,22 @@ async function renderChatThread(conversationId){
       <button type="button" class="chat-attach-option" id="chatAttachProducts"><span class="chat-attach-icon products">📦</span>Products</button>
       <button type="button" class="chat-attach-option" id="chatAttachOrders"><span class="chat-attach-icon orders">🧾</span>Orders</button>
     </div>
+    <div class="chat-emoji-panel" id="chatEmojiPanel" hidden>
+      ${['😀','😁','😂','🤣','😊','😍','😘','😉','😎','🤩','🥳','😇','🙂','😅','😢','😭','😡','😱','🤔','🙄','😴','🤗','👍','👎','👏','🙏','💪','❤️','🔥','🎉','✅','❌','📦','🛍️','💰','⏰','📍'].map(e => `<button type="button" data-emoji="${e}">${e}</button>`).join('')}
+    </div>
     <input type="file" id="chatCameraInput" accept="image/*" capture="environment" hidden>
     <input type="file" id="chatPhotosInput" accept="image/*" hidden>
     <div class="chat-input-bar">
       <button type="button" class="chat-attach-btn" id="chatAttachToggle" aria-label="Attach">+</button>
       <textarea id="chatMessageInput" rows="1" placeholder="Write a message…"></textarea>
+      <button type="button" class="chat-emoji-btn" id="chatEmojiToggle" aria-label="Emoji">🙂</button>
       <button class="chat-send-btn" id="chatSendBtn" aria-label="Send message">➤</button>
     </div>`;
   applyAvatar($('#chatThreadAvatar'), otherName, other?.avatar_url);
   renderChatMessages(messages || [], authState.user.id);
   wireChatAttachments(conversationId, conv.seller_id, conv.buyer_id);
+  wireChatEmoji();
+  wireChatLongPress();
 
   $('#chatSendBtn').onclick = sendChatMessage;
   $('#chatMessageInput').addEventListener('keydown', e => {
@@ -1908,7 +1935,9 @@ function chatBubbleHtml(m, myId){
     </div>`;
   }
   const textPart = m.body ? escapeHtml(m.body) : '';
-  return `<div class="chat-bubble ${mine ? 'mine' : 'theirs'}" data-msg-id="${m.id}">${attachmentHtml}${textPart}<span class="chat-bubble-time">${time}${mine ? (m.read_at ? ' · Seen' : ' · Sent') : ''}</span></div>`;
+  const editedTag = m.edited_at ? ' · Edited' : '';
+  const isTextOnly = !m.attachment_type;
+  return `<div class="chat-bubble ${mine ? 'mine' : 'theirs'}" data-msg-id="${m.id}" data-raw-body="${escapeHtml(m.body || '')}" data-text-only="${isTextOnly}">${attachmentHtml}${textPart}<span class="chat-bubble-time">${time}${editedTag}${mine ? (m.read_at ? ' · Seen' : ' · Sent') : ''}</span></div>`;
 }
 
 async function insertChatRow(conversationId, fields, previewText){
@@ -1967,6 +1996,31 @@ async function sendChatMessage(){
   sendingChatMessage = true;
   if (sendBtn) sendBtn.disabled = true;
 
+  if (editingMessageId) {
+    const msgId = editingMessageId;
+    const { data: updated, error } = await sb.from('messages')
+      .update({ body: text, edited_at: new Date().toISOString() })
+      .eq('id', msgId).eq('sender_id', authState.user.id) // never editable unless it's mine
+      .select('id, sender_id, body, created_at, read_at, attachment_type, attachment_data, edited_at').single();
+    if (error) {
+      toast(/column|schema cache/i.test(error.message)
+        ? 'Editing messages needs a small database update first — see the report for the required SQL.'
+        : /permission|policy|rls/i.test(error.message)
+          ? 'You do not have permission to edit this message.'
+          : 'Could not save edit: ' + error.message);
+    } else {
+      const oldBubble = document.querySelector(`[data-msg-id="${msgId}"]`);
+      if (oldBubble) oldBubble.outerHTML = chatBubbleHtml(updated, authState.user.id);
+      await sb.from('conversations').update({
+        last_message_at: updated.created_at, last_message_text: (updated.body || '').slice(0, 120)
+      }).eq('id', conversationId);
+    }
+    exitEditMode();
+    sendingChatMessage = false;
+    if (sendBtn) sendBtn.disabled = false;
+    return;
+  }
+
   const inserted = await insertChatRow(conversationId, { body: text }, text);
   if (inserted) input.value = ''; // clear only now that the send actually succeeded
 
@@ -1974,12 +2028,12 @@ async function sendChatMessage(){
   if (sendBtn) sendBtn.disabled = false;
 }
 
-async function sendChatAttachment(type, data, previewText){
+async function sendChatAttachment(type, data, previewText, caption){
   const conversationId = state.currentConversationId;
   if (!authState.user) { toast('Sign in to send messages'); return; }
   if (!conversationId) { toast('This chat is not available'); return; }
   closeChatAttachPanel();
-  await insertChatRow(conversationId, { attachment_type: type, attachment_data: data }, previewText);
+  await insertChatRow(conversationId, { attachment_type: type, attachment_data: data, body: caption || '' }, previewText);
 }
 
 function closeChatAttachPanel(){
@@ -1987,6 +2041,28 @@ function closeChatAttachPanel(){
   const toggleBtn = $('#chatAttachToggle');
   if (panel) panel.hidden = true;
   if (toggleBtn) toggleBtn.classList.remove('open');
+}
+
+function closeChatEmojiPanel(){
+  const panel = $('#chatEmojiPanel');
+  if (panel) panel.hidden = true;
+}
+
+function wireChatEmoji(){
+  const toggleBtn = $('#chatEmojiToggle');
+  const panel = $('#chatEmojiPanel');
+  const input = $('#chatMessageInput');
+  if (!toggleBtn || !panel) return;
+  toggleBtn.onclick = () => {
+    const willOpen = panel.hidden;
+    panel.hidden = !willOpen;
+    if (willOpen) closeChatAttachPanel();
+  };
+  panel.querySelectorAll('[data-emoji]').forEach(btn => {
+    btn.onclick = () => {
+      if (input) { input.value += btn.dataset.emoji; input.focus(); }
+    };
+  });
 }
 
 function wireChatAttachments(conversationId, sellerId, buyerId){
@@ -1997,27 +2073,43 @@ function wireChatAttachments(conversationId, sellerId, buyerId){
       const willOpen = panel.hidden;
       panel.hidden = !willOpen;
       toggleBtn.classList.toggle('open', willOpen);
+      if (willOpen) closeChatEmojiPanel();
     };
   }
 
   const cameraInput = $('#chatCameraInput');
   const photosInput = $('#chatPhotosInput');
-  const handleImageFile = async file => {
+  const handleImageFile = file => {
     if (!file) return;
     closeChatAttachPanel();
-    toast('Uploading photo…');
-    try {
-      if (!window.ORHANO_V4?.uploadProductImage) throw new Error('Photo upload is unavailable right now.');
-      const url = await window.ORHANO_V4.uploadProductImage(file, 'chat');
-      await sendChatAttachment('image', { url }, '📷 Photo');
-    } catch (err) {
-      toast('Could not send photo: ' + (err.message || err));
-    }
+    if (!window.ORHANO_V4?.modal) return;
+    const previewUrl = URL.createObjectURL(file);
+    window.ORHANO_V4.modal('Send photo', `
+      <img src="${previewUrl}" style="width:100%;max-height:50vh;object-fit:contain;border-radius:12px;margin-bottom:12px;background:#111;">
+      <div class="v4-field"><label>Add a caption (optional)</label><textarea id="v4PhotoCaption" rows="2" placeholder="Say something…"></textarea></div>
+      <button class="v4-primary" id="v4PhotoSend">Send</button>
+    `, el => {
+      el.querySelector('#v4PhotoSend').onclick = async () => {
+        const btn = el.querySelector('#v4PhotoSend');
+        btn.disabled = true; btn.textContent = 'Sending…';
+        const caption = el.querySelector('#v4PhotoCaption').value.trim();
+        try {
+          if (!window.ORHANO_V4?.uploadProductImage) throw new Error('Photo upload is unavailable right now.');
+          const url = await window.ORHANO_V4.uploadProductImage(file, 'chat');
+          window.ORHANO_V4.closeModal();
+          URL.revokeObjectURL(previewUrl);
+          await sendChatAttachment('image', { url }, caption || '📷 Photo', caption);
+        } catch (err) {
+          toast('Could not send photo: ' + (err.message || err));
+          btn.disabled = false; btn.textContent = 'Send';
+        }
+      };
+    });
   };
   if ($('#chatAttachCamera')) $('#chatAttachCamera').onclick = () => cameraInput?.click();
   if ($('#chatAttachPhotos')) $('#chatAttachPhotos').onclick = () => photosInput?.click();
-  if (cameraInput) cameraInput.onchange = e => handleImageFile(e.target.files[0]);
-  if (photosInput) photosInput.onchange = e => handleImageFile(e.target.files[0]);
+  if (cameraInput) cameraInput.onchange = e => { handleImageFile(e.target.files[0]); cameraInput.value = ''; };
+  if (photosInput) photosInput.onchange = e => { handleImageFile(e.target.files[0]); photosInput.value = ''; };
 
   if ($('#chatAttachProducts')) $('#chatAttachProducts').onclick = () => openChatProductPicker(sellerId);
   if ($('#chatAttachOrders')) $('#chatAttachOrders').onclick = () => openChatOrderPicker(sellerId, buyerId);
@@ -2082,6 +2174,88 @@ function openChatOrderPicker(sellerId, buyerId){
       };
     });
   });
+}
+
+/* ---------- long-press: edit/delete own messages ---------- */
+let longPressTimer = null;
+let editingMessageId = null;
+
+function wireChatLongPress(){
+  const body = $('#chatThreadBody');
+  if (!body) return;
+  body.addEventListener('pointerdown', e => {
+    const bubble = e.target.closest('.chat-bubble.mine[data-msg-id]');
+    if (!bubble) return;
+    clearTimeout(longPressTimer);
+    longPressTimer = setTimeout(() => openMessageOptions(bubble.dataset.msgId), 500);
+  });
+  const cancelPress = () => clearTimeout(longPressTimer);
+  body.addEventListener('pointerup', cancelPress);
+  body.addEventListener('pointercancel', cancelPress);
+  body.addEventListener('pointermove', cancelPress);
+}
+
+function openMessageOptions(msgId){
+  if (!window.ORHANO_V4?.modal) return;
+  const bubble = document.querySelector(`[data-msg-id="${msgId}"]`);
+  const isTextOnly = bubble?.dataset.textOnly === 'true';
+  window.ORHANO_V4.modal('Message options', `
+    ${isTextOnly ? `<button class="mini-btn" id="v4MsgEdit" style="width:100%;margin-bottom:8px;">✏️ Edit</button>` : ''}
+    <button class="mini-btn danger" id="v4MsgDelete" style="width:100%;">🗑️ Delete</button>
+  `, el => {
+    const editBtn = el.querySelector('#v4MsgEdit');
+    if (editBtn) editBtn.onclick = () => {
+      window.ORHANO_V4.closeModal();
+      enterEditMode(msgId, bubble?.dataset.rawBody || '');
+    };
+    el.querySelector('#v4MsgDelete').onclick = () => {
+      window.ORHANO_V4.closeModal();
+      if (confirm('Delete this message?')) deleteMessage(msgId);
+    };
+  });
+}
+
+function enterEditMode(msgId, text){
+  const input = $('#chatMessageInput');
+  const sendBtn = $('#chatSendBtn');
+  const bar = document.querySelector('.chat-input-bar');
+  if (!input || !bar) return;
+  editingMessageId = msgId;
+  input.value = text;
+  input.focus();
+  if (sendBtn) sendBtn.textContent = '✓';
+  if (!document.getElementById('chatEditBanner')) {
+    const banner = document.createElement('div');
+    banner.id = 'chatEditBanner';
+    banner.className = 'chat-edit-banner';
+    banner.innerHTML = `<span>Editing message</span><button type="button" id="chatEditCancel">Cancel</button>`;
+    bar.parentNode.insertBefore(banner, bar);
+    banner.querySelector('#chatEditCancel').onclick = exitEditMode;
+  }
+}
+
+function exitEditMode(){
+  editingMessageId = null;
+  const input = $('#chatMessageInput');
+  const sendBtn = $('#chatSendBtn');
+  if (input) input.value = '';
+  if (sendBtn) sendBtn.textContent = '➤';
+  document.getElementById('chatEditBanner')?.remove();
+}
+
+async function deleteMessage(msgId){
+  if (!authState.user) return;
+  const { error } = await sb.from('messages').delete().eq('id', msgId).eq('sender_id', authState.user.id);
+  if (error) {
+    toast(/column|schema cache/i.test(error.message)
+      ? 'Deleting messages needs a small database update first — see the report for the required SQL.'
+      : /permission|policy|rls/i.test(error.message)
+        ? 'You do not have permission to delete this message.'
+        : 'Could not delete: ' + error.message);
+    return;
+  }
+  document.querySelector(`[data-msg-id="${msgId}"]`)?.remove();
+  toast('Message deleted');
 }
 
 async function markConversationRead(conversationId){

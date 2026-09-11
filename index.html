@@ -3497,19 +3497,30 @@ async function renderAdmin(){
   const revenue = visibleOrders.reduce((sum, o) => sum + Number(o.total), 0);
   $('#adminRevenue').textContent = money(revenue);
 
-  $('#adminSellerApps').innerHTML = (sellerApps && sellerApps.length)
-    ? sellerApps.map(p => `
-      <div class="admin-row">
-        <div class="pcard-name" style="flex:1;">${p.full_name || 'Unnamed user'}<br><span class="pcard-meta">Waiting for review</span></div>
-        <button class="mini-btn primary" data-seller-approve="${p.id}">Approve</button>
-        <button class="mini-btn danger" data-seller-reject="${p.id}">Reject</button>
-      </div>`).join('')
-    : `<p class="muted">No pending seller applications.</p>`;
-
+  // Computed before the pending-applications list so we can flag sellers who
+  // already have (deactivated) listings — that's the signature of someone who
+  // used "Delete seller account" to close their shop, not a brand-new
+  // applicant. seller_status alone can't tell these apart (see deleteSellerAccount).
   const productCountBySeller = {};
   (productsData || []).forEach(p => {
     if (p.seller_id) productCountBySeller[p.seller_id] = (productCountBySeller[p.seller_id] || 0) + 1;
   });
+
+  $('#adminSellerApps').innerHTML = (sellerApps && sellerApps.length)
+    ? sellerApps.map(p => {
+        const existing = productCountBySeller[p.id] || 0;
+        const hint = existing > 0
+          ? `⚠️ ${existing} existing listing(s) — likely closed their seller account, not a new applicant`
+          : 'Waiting for review';
+        return `
+      <div class="admin-row">
+        <div class="pcard-name" style="flex:1;">${p.full_name || 'Unnamed user'}<br><span class="pcard-meta">${hint}</span></div>
+        <button class="mini-btn primary" data-seller-approve="${p.id}">Approve</button>
+        <button class="mini-btn danger" data-seller-reject="${p.id}">Reject</button>
+      </div>`;
+      }).join('')
+    : `<p class="muted">No pending seller applications.</p>`;
+
   $('#adminAllSellers').innerHTML = (allSellers && allSellers.length)
     ? allSellers.map(s => `
       <div class="admin-row">

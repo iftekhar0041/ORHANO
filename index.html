@@ -3510,11 +3510,11 @@ async function renderAdmin(){
     ? sellerApps.map(p => {
         const existing = productCountBySeller[p.id] || 0;
         const hint = existing > 0
-          ? `⚠️ ${existing} existing listing(s) — likely closed their seller account, not a new applicant`
+          ? `⚠️ ${existing} existing listing(s) — likely closed account, not new`
           : 'Waiting for review';
         return `
       <div class="admin-row">
-        <div class="pcard-name" style="flex:1;">${p.full_name || 'Unnamed user'}<br><span class="pcard-meta">${hint}</span></div>
+        <div class="pcard-name" style="display:block;flex:1;">${p.full_name || 'Unnamed user'}<br><span class="pcard-meta">${hint}</span></div>
         <button class="mini-btn primary" data-seller-approve="${p.id}">Approve</button>
         <button class="mini-btn danger" data-seller-reject="${p.id}">Reject</button>
       </div>`;

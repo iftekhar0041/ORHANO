@@ -974,6 +974,9 @@ html,body{width:100%;max-width:100%;overflow-x:hidden;-webkit-text-size-adjust:1
         <button class="link-btn" id="sellerAddBtn">+ Add product</button>
       </div>
       <div id="sellerList" class="seller-list"></div>
+      <div style="padding:24px 16px 8px;text-align:center;">
+        <button class="link-btn" id="sellerDeleteAccountBtn" style="color:var(--brick);font-size:0.8rem;">Delete seller account</button>
+      </div>
     </div>
   </main>
 
@@ -3364,6 +3367,42 @@ async function handleBecomeSeller(){
   await renderSeller();
 }
 
+// Lets a seller close their own seller account. Does NOT touch SQL/RLS/triggers —
+// it works entirely within permissions that already exist:
+//   1. A seller may update is_active on their own products (seller_id = auth.uid()).
+//   2. trg_protect_seller_status only allows a non-admin to self-transition their
+//      own seller_status to 'pending' (the same transition used to (re)apply) —
+//      so "closing" the account reuses that exact allowed transition.
+// This hides the seller's storefront/listings immediately. Re-selling later
+// requires a fresh admin approval, same as any new seller application.
+async function deleteSellerAccount(){
+  if (!authState.user) return;
+  const ok = confirm('আপনার Seller Account বন্ধ করতে চান? আপনার সব প্রোডাক্ট সাথে সাথে buyer-দের কাছে অদৃশ্য হয়ে যাবে। আবার বিক্রি করতে চাইলে নতুন করে apply করতে হবে (admin approval লাগবে)। এটা এগোতে চান?');
+  if (!ok) return;
+
+  const btn = $('#sellerDeleteAccountBtn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Closing…'; }
+
+  const { error: prodErr } = await sb.from('products')
+    .update({ is_active: false }).eq('seller_id', authState.user.id);
+  if (prodErr && !/column/i.test(prodErr.message)) {
+    toast('Could not hide your listings: ' + prodErr.message);
+    if (btn) { btn.disabled = false; btn.textContent = 'Delete seller account'; }
+    return;
+  }
+
+  const { error: statusErr } = await sb.from('profiles')
+    .update({ seller_status: 'pending' }).eq('id', authState.user.id);
+  if (statusErr) {
+    toast('Could not close seller account: ' + statusErr.message);
+    if (btn) { btn.disabled = false; btn.textContent = 'Delete seller account'; }
+    return;
+  }
+
+  toast('Seller account closed — your listings are hidden');
+  await renderSeller();
+}
+
 async function loadSellerProducts(){
   if (!authState.user) { sellerProducts = []; return; }
   const { data, error } = await sb.from('products').select('*').eq('seller_id', authState.user.id).order('id');
@@ -5629,6 +5668,10 @@ init();
     goto('messages');
     document.querySelectorAll('.tab[data-mtab]').forEach(t => t.classList.toggle('active', t.dataset.mtab === 'chat'));
   });
+
+  // Wires up the Seller Center's "Delete seller account" button — closes the
+  // seller's own account (see deleteSellerAccount for what this does and why).
+  document.getElementById('sellerDeleteAccountBtn')?.addEventListener('click', deleteSellerAccount);
 
   document.getElementById('sellerEditShopInfoBtn')?.addEventListener('click', async () => {
     if (!authState.user) { toast('Sign in first'); return; }

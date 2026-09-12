@@ -1049,6 +1049,10 @@ html,body{width:100%;max-width:100%;overflow-x:hidden;-webkit-text-size-adjust:1
     <div class="section-head" style="padding:14px 16px 0;">
       <h2 style="font-size:1rem;">All sellers</h2>
     </div>
+    <div style="padding:8px 16px 0;">
+      <input id="adminSellerSearch" type="text" placeholder="Search sellers by name"
+        style="width:100%;box-sizing:border-box;padding:8px 14px;border:1px solid var(--line);border-radius:999px;font-size:0.8rem;">
+    </div>
     <div class="admin-list" id="adminAllSellers"></div>
     <div class="section-head" style="padding:14px 16px 0;">
       <h2 style="font-size:1rem;">Recent orders</h2>
@@ -3405,6 +3409,34 @@ let adminRevenueOrdersCache = [];
 let adminVisibleOrdersCache = [];
 const ADMIN_ORDER_STATUSES = ['pending', 'processing', 'shipped', 'delivered', 'cancelled', 'returned'];
 
+// Task 13D-2: All Sellers search — same pattern as Order Search (13D-1).
+let adminAllSellersCache = [];
+let adminProductCountBySellerCache = {};
+
+function adminSellerRowHtml(s){
+  const count = adminProductCountBySellerCache[s.id] || 0;
+  return `
+      <div class="admin-row">
+        <div class="pcard-name" style="flex:1;">${s.full_name || 'Unnamed user'}<br><span class="pcard-meta">${count} listing(s) · ${s.seller_status === 'suspended' ? 'Suspended' : 'Active'}</span></div>
+        ${s.seller_status === 'suspended'
+          ? `<button class="mini-btn primary" data-seller-reactivate="${s.id}">Reactivate</button>`
+          : `<button class="mini-btn danger" data-seller-suspend="${s.id}">Suspend</button>`}
+      </div>`;
+}
+
+function renderAdminSellers(){
+  const container = $('#adminAllSellers');
+  if (!container) return;
+  const q = ($('#adminSellerSearch')?.value || '').trim().toLowerCase();
+  const list = q
+    ? adminAllSellersCache.filter(s => (s.full_name || '').toLowerCase().includes(q))
+    : adminAllSellersCache;
+
+  container.innerHTML = (list && list.length)
+    ? list.map(adminSellerRowHtml).join('')
+    : `<p class="muted">${q ? 'No matching sellers.' : 'No sellers yet.'}</p>`;
+}
+
 function adminOrderRowHtml(o){
   return `
       <div class="admin-row">
@@ -3694,15 +3726,10 @@ async function renderAdmin(){
       }).join('')
     : `<p class="muted">No pending seller applications.</p>`;
 
-  $('#adminAllSellers').innerHTML = (allSellers && allSellers.length)
-    ? allSellers.map(s => `
-      <div class="admin-row">
-        <div class="pcard-name" style="flex:1;">${s.full_name || 'Unnamed user'}<br><span class="pcard-meta">${productCountBySeller[s.id] || 0} listing(s) · ${s.seller_status === 'suspended' ? 'Suspended' : 'Active'}</span></div>
-        ${s.seller_status === 'suspended'
-          ? `<button class="mini-btn primary" data-seller-reactivate="${s.id}">Reactivate</button>`
-          : `<button class="mini-btn danger" data-seller-suspend="${s.id}">Suspend</button>`}
-      </div>`).join('')
-    : `<p class="muted">No sellers yet.</p>`;
+  // Task 13D-2: cache for the search box below (see renderAdminSellers).
+  adminAllSellersCache = allSellers || [];
+  adminProductCountBySellerCache = productCountBySeller;
+  renderAdminSellers();
 
   const toggleBtn = $('#toggleArchivedBtn');
   if (toggleBtn) toggleBtn.textContent = state.adminShowArchived ? 'Hide archived' : 'Show archived';
@@ -5255,6 +5282,7 @@ document.addEventListener('click', async e => {
 const toggleArchivedEl = $('#toggleArchivedBtn');
 $('#adminUserSearch')?.addEventListener('input', () => renderAdminUsers());
 $('#adminOrderSearch')?.addEventListener('input', () => renderAdminOrders());
+$('#adminSellerSearch')?.addEventListener('input', () => renderAdminSellers());
 if (toggleArchivedEl) {
   toggleArchivedEl.addEventListener('click', () => {
     state.adminShowArchived = !state.adminShowArchived;

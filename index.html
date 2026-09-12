@@ -4977,6 +4977,7 @@ document.addEventListener('click', async e => {
   const sellDelete = e.target.closest('[data-seller-delete]');
   if (sellDelete) {
     const id = Number(sellDelete.dataset.sellerDelete);
+    if (!confirm('এই লিস্টিং স্থায়ীভাবে ডিলেট করতে চান? এটা আর ফিরিয়ে আনা যাবে না।')) return;
     const { error } = await sb.from('products').delete().eq('id', id).eq('seller_id', authState.user.id);
     if (error) { toast('Delete failed: ' + error.message); return; }
     await renderSeller();

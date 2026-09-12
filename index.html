@@ -3478,10 +3478,14 @@ async function renderAdmin(){
   $('#adminSellerApps').innerHTML = '';
   $('#adminAllSellers').innerHTML = '';
 
-  const [{ count: userCount }, { data: productsData }, { data: ordersData }, { data: sellerApps }, { data: allSellers }] = await Promise.all([
+  const [{ count: userCount }, { data: productsData }, { data: ordersData }, { data: allOrdersForRevenue }, { data: sellerApps }, { data: allSellers }] = await Promise.all([
     sb.from('profiles').select('*', { count: 'exact', head: true }),
     sb.from('products').select('seller_id'),
     sb.from('orders').select('id, total, status, created_at, profiles(full_name)').order('created_at', { ascending: false }).limit(20),
+    // Task 13B-1: "Total order value" must reflect ALL orders, not just the
+    // 20 most recent fetched above for the "Recent orders" list — kept as a
+    // separate lightweight query (no join) so it stays cheap at scale.
+    sb.from('orders').select('total, status'),
     sb.from('profiles').select('id, full_name').eq('seller_status', 'pending'),
     sb.from('profiles').select('id, full_name, seller_status').in('seller_status', ['approved', 'suspended']).order('full_name'),
   ]);
@@ -3493,9 +3497,13 @@ async function renderAdmin(){
     : 0;
   $('#adminSellers').textContent = sellerCount;
 
-  const visibleOrders = (ordersData || []).filter(o => state.adminShowArchived || o.status !== 'archived');
-  const revenue = visibleOrders.reduce((sum, o) => sum + Number(o.total), 0);
+  // Task 13B-1: total now sums every order (respecting the same
+  // archived/unarchived toggle), not just the 20 shown in the list below.
+  const revenueOrders = (allOrdersForRevenue || []).filter(o => state.adminShowArchived || o.status !== 'archived');
+  const revenue = revenueOrders.reduce((sum, o) => sum + Number(o.total), 0);
   $('#adminRevenue').textContent = money(revenue);
+
+  const visibleOrders = (ordersData || []).filter(o => state.adminShowArchived || o.status !== 'archived');
 
   // Computed before the pending-applications list so we can flag sellers who
   // already have (deactivated) listings — that's the signature of someone who

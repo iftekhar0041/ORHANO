@@ -1005,7 +1005,12 @@ html,body{width:100%;max-width:100%;overflow-x:hidden;-webkit-text-size-adjust:1
     <div class="stat-row">
       <div class="stat-card"><strong id="adminUsers">—</strong><span>Registered users</span></div>
       <div class="stat-card"><strong id="adminSellers">—</strong><span>Sellers (have listings)</span></div>
-      <div class="stat-card"><strong id="adminRevenue">—</strong><span>Total order value</span></div>
+      <div class="stat-card"><strong id="adminRevenue">—</strong><span>Total Sales</span></div>
+      <div class="stat-card"><strong id="adminOrdersTotal">—</strong><span>Total Orders</span></div>
+      <div class="stat-card"><strong id="adminOrdersCompleted">—</strong><span>Completed Orders</span></div>
+      <div class="stat-card"><strong id="adminOrdersPending">—</strong><span>Pending Orders</span></div>
+      <div class="stat-card"><strong id="adminOrdersCancelled">—</strong><span>Cancelled/Refunded</span></div>
+      <div class="stat-card"><strong id="adminAOV">—</strong><span>Avg. Order Value</span></div>
     </div>
     <div class="section-head" style="padding:14px 16px 0;">
       <h2 style="font-size:1rem;">Seller applications</h2>
@@ -3506,6 +3511,21 @@ async function renderAdmin(){
   const revenueOrders = (allOrdersForRevenue || []).filter(o => state.adminShowArchived || o.status !== 'archived');
   const revenue = revenueOrders.reduce((sum, o) => sum + Number(o.total), 0);
   $('#adminRevenue').textContent = money(revenue);
+
+  // Task 13B-2: order statistics — reuses revenueOrders/revenue above
+  // (no new query). Status buckets match ORDER_STATUSES used elsewhere:
+  // pending/processing/shipped = still in progress, delivered = completed,
+  // cancelled/returned = cancelled-or-refunded.
+  const totalOrdersCount = revenueOrders.length;
+  const completedCount = revenueOrders.filter(o => o.status === 'delivered').length;
+  const pendingCount = revenueOrders.filter(o => ['pending', 'processing', 'shipped'].includes(o.status)).length;
+  const cancelledCount = revenueOrders.filter(o => ['cancelled', 'returned'].includes(o.status)).length;
+  const avgOrderValue = totalOrdersCount ? revenue / totalOrdersCount : 0;
+  $('#adminOrdersTotal').textContent = totalOrdersCount;
+  $('#adminOrdersCompleted').textContent = completedCount;
+  $('#adminOrdersPending').textContent = pendingCount;
+  $('#adminOrdersCancelled').textContent = cancelledCount;
+  $('#adminAOV').textContent = money(avgOrderValue);
 
   const visibleOrders = (ordersData || []).filter(o => state.adminShowArchived || o.status !== 'archived');
 

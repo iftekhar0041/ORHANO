@@ -1035,6 +1035,14 @@ html,body{width:100%;max-width:100%;overflow-x:hidden;-webkit-text-size-adjust:1
     </div>
     <div class="admin-list" id="adminTopProducts"></div>
     <div class="section-head" style="padding:14px 16px 0;">
+      <h2 style="font-size:1rem;">All users</h2>
+    </div>
+    <div style="padding:8px 16px 0;">
+      <input id="adminUserSearch" type="text" placeholder="Search by name, email or mobile"
+        style="width:100%;box-sizing:border-box;padding:8px 14px;border:1px solid var(--line);border-radius:999px;font-size:0.8rem;">
+    </div>
+    <div class="admin-list" id="adminUsersList"><p class="muted">Loading users…</p></div>
+    <div class="section-head" style="padding:14px 16px 0;">
       <h2 style="font-size:1rem;">Seller applications</h2>
     </div>
     <div class="admin-list" id="adminSellerApps"></div>
@@ -3682,6 +3690,7 @@ async function renderAdmin(){
       </div>`).join('') : `<p class="muted">No reviews yet.</p>`;
 
   renderSalesTrend();
+  loadAdminUsers();
 }
 
 // Task 13B-4: Today/7 Days/30 Days/All Time filter for Orders/Sales/Completed.
@@ -3716,6 +3725,49 @@ function renderSalesTrend(){
   document.querySelectorAll('.admin-period-btn').forEach(btn => {
     btn.classList.toggle('primary', btn.dataset.adminPeriod === period);
   });
+}
+
+// Task 13C-1: All Users management. Email/mobile live in Supabase Auth
+// (auth.users), which the browser can never read directly for other
+// people's accounts — and "blocked" isn't a column anywhere. Both are
+// handled by a new Edge Function ("admin-users") that uses the service-role
+// key server-side and Supabase's native ban mechanism. No new tables,
+// columns, or RLS policies. See the deployment guide provided separately.
+let adminUsersCache = [];
+
+async function loadAdminUsers(){
+  const container = $('#adminUsersList');
+  if (container) container.innerHTML = `<p class="muted">Loading users…</p>`;
+  const { data, error } = await sb.functions.invoke('admin-users', { body: { action: 'list' } });
+  if (error) {
+    if (container) container.innerHTML = `<p class="muted" style="color:var(--brick);">Could not load users — is the "admin-users" Edge Function deployed? (${escapeHtml(error.message || String(error))})</p>`;
+    return;
+  }
+  adminUsersCache = (data && data.users) || [];
+  renderAdminUsers();
+}
+
+function renderAdminUsers(){
+  const container = $('#adminUsersList');
+  if (!container) return;
+  const q = ($('#adminUserSearch')?.value || '').trim().toLowerCase();
+  const filtered = q
+    ? adminUsersCache.filter(u =>
+        (u.full_name || '').toLowerCase().includes(q) ||
+        (u.email || '').toLowerCase().includes(q) ||
+        (u.phone || '').toLowerCase().includes(q))
+    : adminUsersCache;
+
+  container.innerHTML = filtered.length ? filtered.map(u => `
+    <div class="admin-row">
+      <div class="pcard-name" style="flex:1;">${escapeHtml(u.full_name)}<br>
+        <span class="pcard-meta">${escapeHtml(u.email || 'No email')} · ${escapeHtml(u.phone || 'No mobile')} · ${u.blocked ? '🚫 Blocked' : '✅ Active'}</span>
+      </div>
+      ${u.blocked
+        ? `<button class="mini-btn primary" data-admin-user-unblock="${u.id}">Unblock</button>`
+        : `<button class="mini-btn danger" data-admin-user-block="${u.id}">Block</button>`}
+    </div>`).join('')
+    : `<p class="muted">No users found.</p>`;
 }
 
 
@@ -4804,6 +4856,29 @@ document.addEventListener('click', async e => {
     return;
   }
 
+  const blockBtn = e.target.closest('[data-admin-user-block]');
+  if (blockBtn) {
+    const id = blockBtn.dataset.adminUserBlock;
+    if (!confirm('এই ইউজারকে block করতে চান? তিনি আর লগইন করতে পারবেন না, unblock না করা পর্যন্ত।')) return;
+    blockBtn.disabled = true;
+    const { error } = await sb.functions.invoke('admin-users', { body: { action: 'block', userId: id } });
+    if (error) { toast('Block failed: ' + error.message); blockBtn.disabled = false; return; }
+    toast('User blocked');
+    await loadAdminUsers();
+    return;
+  }
+
+  const unblockBtn = e.target.closest('[data-admin-user-unblock]');
+  if (unblockBtn) {
+    const id = unblockBtn.dataset.adminUserUnblock;
+    unblockBtn.disabled = true;
+    const { error } = await sb.functions.invoke('admin-users', { body: { action: 'unblock', userId: id } });
+    if (error) { toast('Unblock failed: ' + error.message); unblockBtn.disabled = false; return; }
+    toast('User unblocked');
+    await loadAdminUsers();
+    return;
+  }
+
   const navBtn = e.target.closest('[data-nav]');
   if (navBtn) {
     if (navBtn.dataset.nav === 'messages' && hasUnreadChat) {
@@ -5140,6 +5215,7 @@ document.addEventListener('click', async e => {
 });
 
 const toggleArchivedEl = $('#toggleArchivedBtn');
+$('#adminUserSearch')?.addEventListener('input', () => renderAdminUsers());
 if (toggleArchivedEl) {
   toggleArchivedEl.addEventListener('click', () => {
     state.adminShowArchived = !state.adminShowArchived;

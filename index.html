@@ -533,7 +533,11 @@ button{font-family:inherit;cursor:pointer;}
   display:flex; align-items:center; gap:10px; background:var(--card);
   border:1px solid var(--line); border-radius:var(--radius-sm); padding:10px 12px;
 }
-.seller-row .pcard-name{flex:1;}
+/* Seller rows pack in a thumbnail, name, stock stepper, and 3 action
+   buttons — too many to fit one line on narrow phones. Wrapping keeps
+   every button reachable instead of being pushed past the visible edge. */
+.seller-row{ flex-wrap:wrap; }
+.seller-row .pcard-name{flex:1; min-width:100%;}
 .mini-btn{
   border:1.5px solid var(--ink); background:transparent; border-radius:999px;
   padding:5px 12px; font-weight:700; font-size:0.72rem;

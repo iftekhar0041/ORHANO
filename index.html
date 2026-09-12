@@ -1013,6 +1013,20 @@ html,body{width:100%;max-width:100%;overflow-x:hidden;-webkit-text-size-adjust:1
       <div class="stat-card"><strong id="adminAOV">—</strong><span>Avg. Order Value</span></div>
     </div>
     <div class="section-head" style="padding:14px 16px 0;">
+      <h2 style="font-size:1rem;">Sales trend</h2>
+    </div>
+    <div style="display:flex;gap:8px;padding:10px 16px 0;flex-wrap:wrap;">
+      <button class="mini-btn admin-period-btn" data-admin-period="today">Today</button>
+      <button class="mini-btn admin-period-btn" data-admin-period="7d">7 Days</button>
+      <button class="mini-btn admin-period-btn" data-admin-period="30d">30 Days</button>
+      <button class="mini-btn admin-period-btn primary" data-admin-period="all">All Time</button>
+    </div>
+    <div class="stat-row">
+      <div class="stat-card"><strong id="adminTrendOrders">—</strong><span>Orders</span></div>
+      <div class="stat-card"><strong id="adminTrendSales">—</strong><span>Sales</span></div>
+      <div class="stat-card"><strong id="adminTrendCompleted">—</strong><span>Completed Orders</span></div>
+    </div>
+    <div class="section-head" style="padding:14px 16px 0;">
       <h2 style="font-size:1rem;">Top sellers</h2>
     </div>
     <div class="admin-list" id="adminTopSellers"></div>
@@ -3369,6 +3383,11 @@ function refreshVisiblePrices(){
 /* ---------- seller center (real — backed by Supabase) ---------- */
 let sellerProducts = [];
 
+// Task 13B-4: cache of all (non-archived-filtered) admin orders, set inside
+// renderAdmin(). Lets the Today/7D/30D/All-Time filter recompute instantly
+// on click without hitting the database again.
+let adminRevenueOrdersCache = [];
+
 async function checkSellerStatus(){
   if (!authState.user) return 'none';
   const { data, error } = await sb.from('profiles').select('seller_status').eq('id', authState.user.id).single();
@@ -3507,7 +3526,8 @@ async function renderAdmin(){
     // separate lightweight query (no join) so it stays cheap at scale.
     // Task 13B-3: added order_items(...) to this SAME query so Top
     // Sellers/Products can be derived from it — still one query.
-    sb.from('orders').select('total, status, order_items(quantity, price_at_purchase, product_id)'),
+    // Task 13B-4: added created_at to this SAME query for the time filter.
+    sb.from('orders').select('total, status, created_at, order_items(quantity, price_at_purchase, product_id)'),
     sb.from('profiles').select('id, full_name').eq('seller_status', 'pending'),
     sb.from('profiles').select('id, full_name, seller_status').in('seller_status', ['approved', 'suspended']).order('full_name'),
   ]);
@@ -3524,6 +3544,9 @@ async function renderAdmin(){
   const revenueOrders = (allOrdersForRevenue || []).filter(o => state.adminShowArchived || o.status !== 'archived');
   const revenue = revenueOrders.reduce((sum, o) => sum + Number(o.total), 0);
   $('#adminRevenue').textContent = money(revenue);
+
+  // Task 13B-4: cache for the time-filter buttons (see renderSalesTrend).
+  adminRevenueOrdersCache = revenueOrders;
 
   // Task 13B-2: order statistics — reuses revenueOrders/revenue above
   // (no new query). Status buckets match ORDER_STATUSES used elsewhere:
@@ -3657,6 +3680,42 @@ async function renderAdmin(){
         <div class="pcard-name" style="flex:1;">${'★'.repeat(Number(r.rating))}${'☆'.repeat(5-Number(r.rating))} · ${escapeHtml(r.products?.name || 'Deleted product')}<br><span class="pcard-meta">${escapeHtml(r.profiles?.full_name || 'Buyer')}${r.review_text ? ' · ' + escapeHtml(r.review_text.slice(0,80)) : ''}</span></div>
         <button class="mini-btn danger" data-admin-review-delete="${r.id}">Remove</button>
       </div>`).join('') : `<p class="muted">No reviews yet.</p>`;
+
+  renderSalesTrend();
+}
+
+// Task 13B-4: Today/7 Days/30 Days/All Time filter for Orders/Sales/Completed.
+// Reads from adminRevenueOrdersCache (already fetched by renderAdmin) so
+// switching periods never triggers a new database query.
+function renderSalesTrend(){
+  const period = state.adminPeriod || 'all';
+  const now = new Date();
+
+  const inPeriod = (o) => {
+    if (period === 'all') return true;
+    if (!o.created_at) return false;
+    const created = new Date(o.created_at);
+    if (period === 'today') {
+      return created.getFullYear() === now.getFullYear()
+        && created.getMonth() === now.getMonth()
+        && created.getDate() === now.getDate();
+    }
+    const days = period === '7d' ? 7 : 30;
+    return (now.getTime() - created.getTime()) <= days * 24 * 60 * 60 * 1000;
+  };
+
+  const filtered = adminRevenueOrdersCache.filter(inPeriod);
+  const orders = filtered.length;
+  const sales = filtered.reduce((sum, o) => sum + Number(o.total), 0);
+  const completed = filtered.filter(o => o.status === 'delivered').length;
+
+  if ($('#adminTrendOrders')) $('#adminTrendOrders').textContent = orders;
+  if ($('#adminTrendSales')) $('#adminTrendSales').textContent = money(sales);
+  if ($('#adminTrendCompleted')) $('#adminTrendCompleted').textContent = completed;
+
+  document.querySelectorAll('.admin-period-btn').forEach(btn => {
+    btn.classList.toggle('primary', btn.dataset.adminPeriod === period);
+  });
 }
 
 
@@ -4738,6 +4797,13 @@ function showFeedback(){
 
 /* ---------- wire up events ---------- */
 document.addEventListener('click', async e => {
+  const periodBtn = e.target.closest('[data-admin-period]');
+  if (periodBtn) {
+    state.adminPeriod = periodBtn.dataset.adminPeriod;
+    renderSalesTrend();
+    return;
+  }
+
   const navBtn = e.target.closest('[data-nav]');
   if (navBtn) {
     if (navBtn.dataset.nav === 'messages' && hasUnreadChat) {

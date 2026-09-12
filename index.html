@@ -1013,6 +1013,14 @@ html,body{width:100%;max-width:100%;overflow-x:hidden;-webkit-text-size-adjust:1
       <div class="stat-card"><strong id="adminAOV">—</strong><span>Avg. Order Value</span></div>
     </div>
     <div class="section-head" style="padding:14px 16px 0;">
+      <h2 style="font-size:1rem;">Top sellers</h2>
+    </div>
+    <div class="admin-list" id="adminTopSellers"></div>
+    <div class="section-head" style="padding:14px 16px 0;">
+      <h2 style="font-size:1rem;">Top products</h2>
+    </div>
+    <div class="admin-list" id="adminTopProducts"></div>
+    <div class="section-head" style="padding:14px 16px 0;">
       <h2 style="font-size:1rem;">Seller applications</h2>
     </div>
     <div class="admin-list" id="adminSellerApps"></div>
@@ -3489,12 +3497,17 @@ async function renderAdmin(){
 
   const [{ count: userCount }, { data: productsData }, { data: ordersData }, { data: allOrdersForRevenue }, { data: sellerApps }, { data: allSellers }] = await Promise.all([
     sb.from('profiles').select('*', { count: 'exact', head: true }),
-    sb.from('products').select('seller_id'),
+    // Task 13B-3: added id/name/profiles(full_name) to this SAME query (used
+    // since 13B-2 for seller count) so Top Sellers/Products can resolve
+    // product -> seller name without a separate call.
+    sb.from('products').select('id, name, seller_id, profiles(full_name)'),
     sb.from('orders').select('id, total, status, created_at, profiles(full_name)').order('created_at', { ascending: false }).limit(20),
     // Task 13B-1: "Total order value" must reflect ALL orders, not just the
     // 20 most recent fetched above for the "Recent orders" list — kept as a
     // separate lightweight query (no join) so it stays cheap at scale.
-    sb.from('orders').select('total, status'),
+    // Task 13B-3: added order_items(...) to this SAME query so Top
+    // Sellers/Products can be derived from it — still one query.
+    sb.from('orders').select('total, status, order_items(quantity, price_at_purchase, product_id)'),
     sb.from('profiles').select('id, full_name').eq('seller_status', 'pending'),
     sb.from('profiles').select('id, full_name, seller_status').in('seller_status', ['approved', 'suspended']).order('full_name'),
   ]);
@@ -3526,6 +3539,54 @@ async function renderAdmin(){
   $('#adminOrdersPending').textContent = pendingCount;
   $('#adminOrdersCancelled').textContent = cancelledCount;
   $('#adminAOV').textContent = money(avgOrderValue);
+
+  // Task 13B-3: Top Sellers & Top Products — built entirely from
+  // revenueOrders (order_items already embedded above) and productsData
+  // (id/name/seller/profiles already embedded above). No extra queries.
+  const productInfoById = {};
+  (productsData || []).forEach(p => {
+    productInfoById[p.id] = { name: p.name, sellerId: p.seller_id, sellerName: p.profiles?.full_name || 'Unnamed seller' };
+  });
+
+  const productAgg = {};   // product_id -> { name, qty, sales }
+  const sellerAgg = {};    // seller_id -> { name, orderIds:Set, sales }
+  revenueOrders.forEach(o => {
+    const sellersInThisOrder = new Set();
+    (o.order_items || []).forEach(it => {
+      const info = productInfoById[it.product_id];
+      const qty = Number(it.quantity || 0);
+      const lineSales = qty * Number(it.price_at_purchase || 0);
+
+      const pKey = it.product_id ?? 'unknown';
+      if (!productAgg[pKey]) productAgg[pKey] = { name: info?.name || 'Deleted product', qty: 0, sales: 0 };
+      productAgg[pKey].qty += qty;
+      productAgg[pKey].sales += lineSales;
+
+      if (info?.sellerId) {
+        if (!sellerAgg[info.sellerId]) sellerAgg[info.sellerId] = { name: info.sellerName, orderIds: new Set(), sales: 0 };
+        sellerAgg[info.sellerId].sales += lineSales;
+        sellersInThisOrder.add(info.sellerId);
+      }
+    });
+    sellersInThisOrder.forEach(sid => sellerAgg[sid].orderIds.add(o.id));
+  });
+
+  const topSellers = Object.values(sellerAgg).sort((a, b) => b.sales - a.sales).slice(0, 5);
+  const topProducts = Object.values(productAgg).sort((a, b) => b.sales - a.sales).slice(0, 5);
+
+  $('#adminTopSellers').innerHTML = topSellers.length
+    ? topSellers.map(s => `
+      <div class="admin-row">
+        <div class="pcard-name" style="flex:1;">${escapeHtml(s.name)}<br><span class="pcard-meta">${s.orderIds.size} order(s) · ${money(s.sales)}</span></div>
+      </div>`).join('')
+    : `<p class="muted">No sales yet.</p>`;
+
+  $('#adminTopProducts').innerHTML = topProducts.length
+    ? topProducts.map(p => `
+      <div class="admin-row">
+        <div class="pcard-name" style="flex:1;">${escapeHtml(p.name)}<br><span class="pcard-meta">${p.qty} sold · ${money(p.sales)}</span></div>
+      </div>`).join('')
+    : `<p class="muted">No sales yet.</p>`;
 
   const visibleOrders = (ordersData || []).filter(o => state.adminShowArchived || o.status !== 'archived');
 

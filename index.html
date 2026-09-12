@@ -1168,7 +1168,7 @@ async function loadProductsFromDB(){
   // the DB, so reactivating the seller brings them back with no extra work).
   let visibleData = data;
   try {
-    const { data: suspended } = await sb.from('profiles').select('id').eq('seller_status', 'suspended');
+    const { data: suspended } = await sb.from('public_profiles').select('id').eq('seller_status', 'suspended');
     if (suspended && suspended.length) {
       const suspendedIds = new Set(suspended.map(s => s.id));
       visibleData = data.filter(row => !row.seller_id || !suspendedIds.has(row.seller_id));
@@ -1212,13 +1212,15 @@ async function loadProductsFromDB(){
 }
 
 /* Best-effort: look up shop names for products that have a seller_id.
-   Wrapped so that if the profiles table/relationship isn't reachable
-   for some reason, the product list still loads fine without names. */
+   Uses public_profiles (a view exposing only name/avatar/bio/seller_status —
+   never role) instead of the base profiles table, since this looks up OTHER
+   people's rows for public display. Wrapped so that if the view isn't
+   reachable for some reason, the product list still loads fine without names. */
 async function attachSellerNames(){
   try {
     const ids = [...new Set(PRODUCTS.map(p => p.sellerId).filter(Boolean))];
     if (!ids.length) return;
-    const { data, error } = await sb.from('profiles').select('id, full_name').in('id', ids);
+    const { data, error } = await sb.from('public_profiles').select('id, full_name').in('id', ids);
     if (error || !data) return;
     const nameById = Object.fromEntries(data.map(r => [r.id, r.full_name]));
     PRODUCTS.forEach(p => { if (p.sellerId) p.sellerName = nameById[p.sellerId] || null; });
@@ -1508,13 +1510,13 @@ async function renderStorePage(sellerId){
   state.currentShopId = sellerId;
   wrap.innerHTML = `<p style="padding:40px 16px;text-align:center;color:var(--ink-soft);">Loading shop…</p>`;
 
-  // Only ever select PUBLIC-safe profile columns here — never seller_status,
-  // role, email, etc. shop_bio is optional (see SQL in the report); if the
-  // column doesn't exist yet, retry without it instead of failing.
-  let { data: profile, error: profErr } = await sb.from('profiles')
+  // Uses public_profiles — a view exposing only name/avatar/bio/seller_status,
+  // never role/email/etc. — since this reads another user's (the seller's)
+  // row for public display, not the signed-in visitor's own row.
+  let { data: profile, error: profErr } = await sb.from('public_profiles')
     .select('id, full_name, avatar_url, shop_bio').eq('id', sellerId).single();
   if (profErr && /column|schema cache/i.test(profErr.message || '')) {
-    ({ data: profile, error: profErr } = await sb.from('profiles')
+    ({ data: profile, error: profErr } = await sb.from('public_profiles')
       .select('id, full_name, avatar_url').eq('id', sellerId).single());
   }
   if (profErr || !profile) {
@@ -1640,7 +1642,7 @@ async function renderProductReviews(productId){
   body.innerHTML = `<p class="muted">Loading reviews…</p>`;
 
   const { data: reviews, error } = await sb.from('reviews')
-    .select('id, rating, review_text, image_urls, buyer_id, created_at, profiles(full_name), review_replies(id, reply_text, created_at)')
+    .select('id, rating, review_text, image_urls, buyer_id, created_at, review_replies(id, reply_text, created_at)')
     .eq('product_id', productId)
     .order('created_at', { ascending: false });
 
@@ -1650,6 +1652,17 @@ async function renderProductReviews(productId){
       ? `<p class="muted">Reviews aren't set up on this database yet.</p>`
       : `<p class="muted" style="color:var(--brick);">Could not load reviews: ${escapeHtml(error.message)}</p>`;
     return;
+  }
+
+  // Reviewer names come from public_profiles (safe columns only, never role)
+  // via a separate lookup — PostgREST can't auto-embed profiles(full_name)
+  // through a view the way it could through the base table's foreign key.
+  const buyerIds = [...new Set((reviews || []).map(r => r.buyer_id).filter(Boolean))];
+  if (buyerIds.length) {
+    const { data: names } = await sb.from('public_profiles').select('id, full_name').in('id', buyerIds);
+    const nameById = {};
+    (names || []).forEach(n => { nameById[n.id] = n.full_name; });
+    (reviews || []).forEach(r => { r.profiles = { full_name: nameById[r.buyer_id] }; });
   }
 
   const list = reviews || [];
@@ -2798,7 +2811,7 @@ async function renderShops(){
     $('#shopsList').innerHTML = `<p style="padding:16px;color:var(--ink-soft);font-size:0.85rem;">You're not following any shops yet — tap "Follow" under an item from that shop to follow it here.</p>`;
     return;
   }
-  const { data, error } = await sb.from('profiles').select('id, full_name').in('id', ids);
+  const { data, error } = await sb.from('public_profiles').select('id, full_name').in('id', ids);
   if (error) { $('#shopsList').innerHTML = `<p style="padding:16px;color:var(--brick);font-size:0.85rem;">Could not load shops: ${error.message}</p>`; return; }
   $('#shopsList').innerHTML = data.map(shop => {
     const liveCount = PRODUCTS.filter(p => p.sellerId === shop.id).length;
@@ -3594,6 +3607,18 @@ async function renderSeller(){
 
 /* ---------- admin panel (real — gated by profiles.role = 'admin') ---------- */
 async function renderAdmin(){
+  // Defense-in-depth: renderAdmin() no longer trusts that its caller already
+  // verified admin access (checkAdminAccess does, but someone could call
+  // this function directly from the browser console, bypassing that gate).
+  // This check costs nothing extra in normal use — a real admin's own
+  // profile row already says role='admin' — but it means a non-admin who
+  // triggers this function directly gets nothing back. The actual data
+  // protection is still Supabase RLS (see the "admin-panel-rls-check" note),
+  // this is a second line of defense, not a replacement for it.
+  if (!authState.user) return;
+  const { data: selfProfile, error: selfErr } = await sb.from('profiles').select('role').eq('id', authState.user.id).single();
+  if (selfErr || selfProfile?.role !== 'admin') return;
+
   $('#adminUsers').textContent = '…';
   $('#adminSellers').textContent = '…';
   $('#adminRevenue').textContent = '…';

@@ -1054,6 +1054,10 @@ html,body{width:100%;max-width:100%;overflow-x:hidden;-webkit-text-size-adjust:1
       <h2 style="font-size:1rem;">Recent orders</h2>
       <button class="link-btn" id="toggleArchivedBtn">Show archived</button>
     </div>
+    <div style="padding:8px 16px 0;">
+      <input id="adminOrderSearch" type="text" placeholder="Search by order #, buyer name or status"
+        style="width:100%;box-sizing:border-box;padding:8px 14px;border:1px solid var(--line);border-radius:999px;font-size:0.8rem;">
+    </div>
     <div class="admin-list" id="adminApprovals"></div>
     <div class="section-head" style="padding:14px 16px 0;">
       <h2 style="font-size:1rem;">Recent reviews</h2>
@@ -3396,6 +3400,49 @@ let sellerProducts = [];
 // on click without hitting the database again.
 let adminRevenueOrdersCache = [];
 
+// Task 13D-1: the default 20-most-recent order list (unchanged behavior),
+// cached so the search box can restore it instantly when cleared.
+let adminVisibleOrdersCache = [];
+const ADMIN_ORDER_STATUSES = ['pending', 'processing', 'shipped', 'delivered', 'cancelled', 'returned'];
+
+function adminOrderRowHtml(o){
+  return `
+      <div class="admin-row">
+        <div class="pcard-name" style="flex:1;">Order #${o.id} · ${o.profiles?.full_name || 'Unknown buyer'}<br><span class="pcard-meta">${money(Number(o.total))} · ${o.status}</span></div>
+        ${o.status === 'archived' ? `
+        <button class="mini-btn primary" data-order-restore="${o.id}">Restore</button>
+        <button class="mini-btn danger" data-order-permanent-delete="${o.id}">Delete</button>
+        ` : `
+        <select class="status-select" data-status-for="${o.id}">
+          ${ADMIN_ORDER_STATUSES.map(s => `<option value="${s}" ${s === o.status ? 'selected' : ''}>${s}</option>`).join('')}
+        </select>
+        <button class="mini-btn" data-status-save="${o.id}">Save</button>
+        <button class="mini-btn danger" data-order-delete="${o.id}">Delete</button>
+        `}
+      </div>`;
+}
+
+// Task 13D-1: Order search. Empty box = the original 20-most-recent view
+// (unchanged behavior). Typing searches order id / buyer name / status
+// across ALL orders (adminRevenueOrdersCache), not just those 20 — reusing
+// data already fetched, no new query.
+function renderAdminOrders(){
+  const container = $('#adminApprovals');
+  if (!container) return;
+  const q = ($('#adminOrderSearch')?.value || '').trim().toLowerCase();
+
+  const list = q
+    ? adminRevenueOrdersCache.filter(o =>
+        String(o.id).includes(q) ||
+        (o.profiles?.full_name || '').toLowerCase().includes(q) ||
+        (o.status || '').toLowerCase().includes(q))
+    : adminVisibleOrdersCache;
+
+  container.innerHTML = (list && list.length)
+    ? list.map(adminOrderRowHtml).join('')
+    : `<p class="muted">${q ? 'No matching orders.' : 'No orders yet.'}</p>`;
+}
+
 async function checkSellerStatus(){
   if (!authState.user) return 'none';
   const { data, error } = await sb.from('profiles').select('seller_status').eq('id', authState.user.id).single();
@@ -3535,7 +3582,9 @@ async function renderAdmin(){
     // Task 13B-3: added order_items(...) to this SAME query so Top
     // Sellers/Products can be derived from it — still one query.
     // Task 13B-4: added created_at to this SAME query for the time filter.
-    sb.from('orders').select('total, status, created_at, order_items(quantity, price_at_purchase, product_id)'),
+    // Task 13D-1: added id/profiles(full_name) to this SAME query so Order
+    // Search can match against every order, not just the 20 most recent.
+    sb.from('orders').select('id, total, status, created_at, profiles(full_name), order_items(quantity, price_at_purchase, product_id)'),
     sb.from('profiles').select('id, full_name').eq('seller_status', 'pending'),
     sb.from('profiles').select('id, full_name, seller_status').in('seller_status', ['approved', 'suspended']).order('full_name'),
   ]);
@@ -3557,7 +3606,7 @@ async function renderAdmin(){
   adminRevenueOrdersCache = revenueOrders;
 
   // Task 13B-2: order statistics — reuses revenueOrders/revenue above
-  // (no new query). Status buckets match ORDER_STATUSES used elsewhere:
+  // (no new query). Status buckets match ADMIN_ORDER_STATUSES used elsewhere:
   // pending/processing/shipped = still in progress, delivered = completed,
   // cancelled/returned = cancelled-or-refunded.
   const totalOrdersCount = revenueOrders.length;
@@ -3658,23 +3707,12 @@ async function renderAdmin(){
   const toggleBtn = $('#toggleArchivedBtn');
   if (toggleBtn) toggleBtn.textContent = state.adminShowArchived ? 'Hide archived' : 'Show archived';
 
-  const ORDER_STATUSES = ['pending', 'processing', 'shipped', 'delivered', 'cancelled', 'returned'];
-  $('#adminApprovals').innerHTML = (visibleOrders && visibleOrders.length)
-    ? visibleOrders.map(o => `
-      <div class="admin-row">
-        <div class="pcard-name" style="flex:1;">Order #${o.id} · ${o.profiles?.full_name || 'Unknown buyer'}<br><span class="pcard-meta">${money(Number(o.total))} · ${o.status}</span></div>
-        ${o.status === 'archived' ? `
-        <button class="mini-btn primary" data-order-restore="${o.id}">Restore</button>
-        <button class="mini-btn danger" data-order-permanent-delete="${o.id}">Delete</button>
-        ` : `
-        <select class="status-select" data-status-for="${o.id}">
-          ${ORDER_STATUSES.map(s => `<option value="${s}" ${s === o.status ? 'selected' : ''}>${s}</option>`).join('')}
-        </select>
-        <button class="mini-btn" data-status-save="${o.id}">Save</button>
-        <button class="mini-btn danger" data-order-delete="${o.id}">Delete</button>
-        `}
-      </div>`).join('')
-    : `<p class="muted">No orders yet.</p>`;
+  // Task 13D-1: cache both order sets so the search box can re-render
+  // instantly on typing, without a new query. visibleOrders = the existing
+  // 20-most-recent default view; adminRevenueOrdersCache (set earlier,
+  // above) = every order, searched only when the box has text in it.
+  adminVisibleOrdersCache = visibleOrders;
+  renderAdminOrders();
 
   // Reviews moderation (req #11). Degrade gracefully if the reviews table
   // hasn't been created yet (see report for the SQL).
@@ -5216,6 +5254,7 @@ document.addEventListener('click', async e => {
 
 const toggleArchivedEl = $('#toggleArchivedBtn');
 $('#adminUserSearch')?.addEventListener('input', () => renderAdminUsers());
+$('#adminOrderSearch')?.addEventListener('input', () => renderAdminOrders());
 if (toggleArchivedEl) {
   toggleArchivedEl.addEventListener('click', () => {
     state.adminShowArchived = !state.adminShowArchived;

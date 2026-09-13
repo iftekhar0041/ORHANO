@@ -3795,22 +3795,30 @@ async function renderSeller(){
 }
 
 /* ---------- admin panel (real — gated by profiles.role = 'admin') ---------- */
-// Task 13E-1 fix: is_active/stock_quantity/image_urls aren't guaranteed to
-// exist yet on every deployment of this database (same caveat as the seller
-// product editor's own fallback). A single missing column fails the ENTIRE
-// select, so this retries with just the always-present columns and fills
-// safe defaults, instead of silently returning nothing (which was also
-// breaking productCountBySeller and Top Sellers/Products, not just the new
-// "All products" list).
+// Task 13E-1 fix v2: is_active/stock_quantity/image_urls aren't guaranteed
+// to exist on every deployment. The previous version dropped ALL THREE the
+// moment ANY one was missing — silently losing real stock/status data for
+// columns that DID exist. This now removes only the specific column named
+// in the error, one at a time, keeping every other real column intact.
 async function fetchAdminProducts(){
-  let { data, error } = await sb.from('products')
-    .select('id, name, seller_id, price, is_active, stock_quantity, image_urls, profiles(full_name)');
-  if (error && /column|schema cache/i.test(error.message || '')) {
-    ({ data, error } = await sb.from('products').select('id, name, seller_id, price, profiles(full_name)'));
-    if (!error) data = (data || []).map(p => ({ ...p, is_active: true, stock_quantity: null, image_urls: [] }));
+  let columns = ['id', 'name', 'seller_id', 'price', 'is_active', 'stock_quantity', 'image_urls'];
+  const optional = ['is_active', 'stock_quantity', 'image_urls'];
+  const defaults = { is_active: true, stock_quantity: null, image_urls: [] };
+
+  for (let attempt = 0; attempt < optional.length + 1; attempt++) {
+    const { data, error } = await sb.from('products').select(`${columns.join(', ')}, profiles(full_name)`);
+    if (!error) {
+      const dropped = optional.filter(c => !columns.includes(c));
+      return { data: (data || []).map(p => dropped.length ? { ...defaults, ...p, ...Object.fromEntries(dropped.map(c => [c, defaults[c]])) } : p) };
+    }
+    // Find which of our optional columns the error is actually complaining
+    // about (Postgres names it explicitly, e.g. "column products.foo does
+    // not exist") and drop only that one before retrying.
+    const missing = optional.find(c => columns.includes(c) && (error.message || '').includes(c));
+    if (!missing) { console.error('Admin products query failed:', error); return { data: [] }; }
+    columns = columns.filter(c => c !== missing);
   }
-  if (error) { console.error('Admin products query failed:', error); data = []; }
-  return { data };
+  return { data: [] };
 }
 
 async function renderAdmin(){

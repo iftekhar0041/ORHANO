@@ -1035,6 +1035,17 @@ html,body{width:100%;max-width:100%;overflow-x:hidden;-webkit-text-size-adjust:1
     </div>
     <div class="admin-list" id="adminTopProducts"></div>
     <div class="section-head" style="padding:14px 16px 0;">
+      <h2 style="font-size:1rem;">All products</h2>
+    </div>
+    <div style="padding:8px 16px 0;display:flex;gap:8px;">
+      <input id="adminProductSearch" type="text" placeholder="Search by product name"
+        style="flex:1;min-width:0;box-sizing:border-box;padding:8px 14px;border:1px solid var(--line);border-radius:999px;font-size:0.8rem;">
+      <select id="adminProductSellerFilter" style="box-sizing:border-box;padding:8px 10px;border:1px solid var(--line);border-radius:999px;font-size:0.8rem;max-width:38%;">
+        <option value="">All sellers</option>
+      </select>
+    </div>
+    <div class="admin-list" id="adminProductsList"></div>
+    <div class="section-head" style="padding:14px 16px 0;">
       <h2 style="font-size:1rem;">All users</h2>
     </div>
     <div style="padding:8px 16px 0;">
@@ -3497,6 +3508,67 @@ let adminProductCountBySellerCache = {};
 let adminSellerAppsCache = [];
 let adminSellerStatsCache = {};
 
+// Task 13E-1: All Products management — reuses productsData (already
+// fetched above, now with price/is_active/stock/image columns added) and
+// adminAllSellersCache (already fetched for the seller filter dropdown).
+// No new queries.
+let adminProductsCache = [];
+
+function adminProductRowHtml(p){
+  const sellerName = p.profiles?.full_name || 'Unnamed seller';
+  const active = p.is_active !== false;
+  const stock = Math.max(0, Number(p.stock_quantity ?? 0));
+  return `
+      <div class="admin-row">
+        <div class="pcard-name" style="display:block;flex:1;">${escapeHtml(p.name || 'Untitled product')}<br><span class="pcard-meta">${escapeHtml(sellerName)} · ${money(Number(p.price || 0))} · ${active ? 'Active' : 'Inactive'} · Stock: ${stock}</span></div>
+        <button class="mini-btn" data-admin-product-details="${p.id}">Details</button>
+        ${active
+          ? `<button class="mini-btn danger" data-admin-product-remove="${p.id}">Remove</button>`
+          : `<button class="mini-btn primary" data-admin-product-approve="${p.id}">Approve</button><button class="mini-btn danger" data-admin-product-remove="${p.id}">Remove</button>`}
+      </div>`;
+}
+
+function renderAdminProducts(){
+  const container = $('#adminProductsList');
+  if (!container) return;
+  const q = ($('#adminProductSearch')?.value || '').trim().toLowerCase();
+  const sellerId = $('#adminProductSellerFilter')?.value || '';
+
+  const list = adminProductsCache.filter(p => {
+    const matchesQuery = !q || (p.name || '').toLowerCase().includes(q);
+    const matchesSeller = !sellerId || p.seller_id === sellerId;
+    return matchesQuery && matchesSeller;
+  });
+
+  container.innerHTML = list.length
+    ? list.map(adminProductRowHtml).join('')
+    : `<p class="muted">${q || sellerId ? 'No matching products.' : 'No products yet.'}</p>`;
+}
+
+function populateAdminProductSellerFilter(){
+  const select = $('#adminProductSellerFilter');
+  if (!select) return;
+  const current = select.value;
+  const sellers = [...adminAllSellersCache].sort((a, b) => (a.full_name || '').localeCompare(b.full_name || ''));
+  select.innerHTML = `<option value="">All sellers</option>` +
+    sellers.map(s => `<option value="${s.id}">${escapeHtml(s.full_name || 'Unnamed user')}</option>`).join('');
+  select.value = current;
+}
+
+function showAdminProductDetails(id){
+  const p = adminProductsCache.find(x => String(x.id) === String(id));
+  if (!p || !window.ORHANO_V4?.modal) return;
+  const images = Array.isArray(p.image_urls) ? p.image_urls : [];
+  window.ORHANO_V4.modal(escapeHtml(p.name || 'Product details'), `
+    <p style="margin:0 0 8px;"><strong>Seller:</strong> ${escapeHtml(p.profiles?.full_name || 'Unnamed seller')}</p>
+    <p style="margin:0 0 8px;"><strong>Price:</strong> ${money(Number(p.price || 0))}</p>
+    <p style="margin:0 0 8px;"><strong>Stock:</strong> ${Math.max(0, Number(p.stock_quantity ?? 0))}</p>
+    <p style="margin:0 0 8px;"><strong>Status:</strong> ${p.is_active !== false ? 'Active' : 'Inactive'}</p>
+    <p style="margin:0 0 8px;"><strong>Images:</strong> ${images.length}</p>
+    ${images.length ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;">${images.slice(0,4).map(u => `<img src="${escapeHtml(u)}" style="width:64px;height:64px;object-fit:cover;border-radius:8px;">`).join('')}</div>` : ''}
+  `);
+}
+
 // Task 13D-1: pending seller applications, now also showing email/mobile
 // (from adminUsersCache — see loadAdminUsers) alongside the existing
 // existing-listing-count hint.
@@ -3748,7 +3820,10 @@ async function renderAdmin(){
     // Task 13B-3: added id/name/profiles(full_name) to this SAME query (used
     // since 13B-2 for seller count) so Top Sellers/Products can resolve
     // product -> seller name without a separate call.
-    sb.from('products').select('id, name, seller_id, profiles(full_name)'),
+    // Task 13E-1: added price/is_active/stock_quantity/image_urls to this
+    // SAME query (already fetched since 13B-3 for Top Sellers/product
+    // counts) so the new "All products" admin list needs no extra query.
+    sb.from('products').select('id, name, seller_id, price, is_active, stock_quantity, image_urls, profiles(full_name)'),
     sb.from('orders').select('id, total, status, created_at, profiles(full_name)').order('created_at', { ascending: false }).limit(20),
     // Task 13B-1: "Total order value" must reflect ALL orders, not just the
     // 20 most recent fetched above for the "Recent orders" list — kept as a
@@ -3869,6 +3944,12 @@ async function renderAdmin(){
   // Task 13D-2: cache for the search box below (see renderAdminSellers).
   adminAllSellersCache = allSellers || [];
   renderAdminSellers();
+
+  // Task 13E-1: All Products — placed after adminAllSellersCache so the
+  // seller filter dropdown has names to show.
+  adminProductsCache = productsData || [];
+  populateAdminProductSellerFilter();
+  renderAdminProducts();
 
   const toggleBtn = $('#toggleArchivedBtn');
   if (toggleBtn) toggleBtn.textContent = state.adminShowArchived ? 'Hide archived' : 'Show archived';
@@ -5064,6 +5145,35 @@ document.addEventListener('click', async e => {
     return;
   }
 
+  const productDetailsBtn = e.target.closest('[data-admin-product-details]');
+  if (productDetailsBtn) {
+    showAdminProductDetails(productDetailsBtn.dataset.adminProductDetails);
+    return;
+  }
+
+  const productApproveBtn = e.target.closest('[data-admin-product-approve]');
+  if (productApproveBtn) {
+    const id = productApproveBtn.dataset.adminProductApprove;
+    const { data, error } = await sb.from('products').update({ is_active: true }).eq('id', id).select();
+    if (error) { toast('Approve failed: ' + error.message); return; }
+    if (!data || data.length === 0) { toast('Product not approved — a Supabase RLS policy is likely blocking admins from updating other sellers\' products.'); return; }
+    toast('Product approved');
+    renderAdmin();
+    return;
+  }
+
+  const productRemoveBtn = e.target.closest('[data-admin-product-remove]');
+  if (productRemoveBtn) {
+    const id = productRemoveBtn.dataset.adminProductRemove;
+    if (!confirm('এই প্রোডাক্টটা স্থায়ীভাবে মুছে ফেলতে চান? এটা ফিরিয়ে আনা যাবে না।')) return;
+    const { data, error } = await sb.from('products').delete().eq('id', id).select();
+    if (error) { toast('Remove failed: ' + error.message); return; }
+    if (!data || data.length === 0) { toast('Product not removed — a Supabase RLS policy is likely blocking admins from deleting other sellers\' products.'); return; }
+    toast('Product removed');
+    renderAdmin();
+    return;
+  }
+
   const blockBtn = e.target.closest('[data-admin-user-block]');
   if (blockBtn) {
     const id = blockBtn.dataset.adminUserBlock;
@@ -5426,6 +5536,8 @@ const toggleArchivedEl = $('#toggleArchivedBtn');
 $('#adminUserSearch')?.addEventListener('input', () => renderAdminUsers());
 $('#adminOrderSearch')?.addEventListener('input', () => renderAdminOrders());
 $('#adminSellerSearch')?.addEventListener('input', () => renderAdminSellers());
+$('#adminProductSearch')?.addEventListener('input', () => renderAdminProducts());
+$('#adminProductSellerFilter')?.addEventListener('change', () => renderAdminProducts());
 if (toggleArchivedEl) {
   toggleArchivedEl.addEventListener('click', () => {
     state.adminShowArchived = !state.adminShowArchived;

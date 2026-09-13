@@ -3795,6 +3795,24 @@ async function renderSeller(){
 }
 
 /* ---------- admin panel (real — gated by profiles.role = 'admin') ---------- */
+// Task 13E-1 fix: is_active/stock_quantity/image_urls aren't guaranteed to
+// exist yet on every deployment of this database (same caveat as the seller
+// product editor's own fallback). A single missing column fails the ENTIRE
+// select, so this retries with just the always-present columns and fills
+// safe defaults, instead of silently returning nothing (which was also
+// breaking productCountBySeller and Top Sellers/Products, not just the new
+// "All products" list).
+async function fetchAdminProducts(){
+  let { data, error } = await sb.from('products')
+    .select('id, name, seller_id, price, is_active, stock_quantity, image_urls, profiles(full_name)');
+  if (error && /column|schema cache/i.test(error.message || '')) {
+    ({ data, error } = await sb.from('products').select('id, name, seller_id, price, profiles(full_name)'));
+    if (!error) data = (data || []).map(p => ({ ...p, is_active: true, stock_quantity: null, image_urls: [] }));
+  }
+  if (error) { console.error('Admin products query failed:', error); data = []; }
+  return { data };
+}
+
 async function renderAdmin(){
   // Defense-in-depth: renderAdmin() no longer trusts that its caller already
   // verified admin access (checkAdminAccess does, but someone could call
@@ -3820,10 +3838,13 @@ async function renderAdmin(){
     // Task 13B-3: added id/name/profiles(full_name) to this SAME query (used
     // since 13B-2 for seller count) so Top Sellers/Products can resolve
     // product -> seller name without a separate call.
-    // Task 13E-1: added price/is_active/stock_quantity/image_urls to this
-    // SAME query (already fetched since 13B-3 for Top Sellers/product
-    // counts) so the new "All products" admin list needs no extra query.
-    sb.from('products').select('id, name, seller_id, price, is_active, stock_quantity, image_urls, profiles(full_name)'),
+    // Task 13E-1: added price/is_active/stock_quantity/image_urls for the
+    // "All products" admin list. FIX: these three columns aren't guaranteed
+    // to exist on every deployment (see the same fallback in the seller
+    // product editor), and a single missing column fails the WHOLE select —
+    // which was silently emptying productCountBySeller/Top Sellers too.
+    // fetchAdminProducts() retries without them and fills safe defaults.
+    fetchAdminProducts(),
     sb.from('orders').select('id, total, status, created_at, profiles(full_name)').order('created_at', { ascending: false }).limit(20),
     // Task 13B-1: "Total order value" must reflect ALL orders, not just the
     // 20 most recent fetched above for the "Recent orders" list — kept as a

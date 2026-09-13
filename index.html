@@ -2243,6 +2243,41 @@ function openChatOrderPicker(sellerId, buyerId){
 let longPressTimer = null;
 let editingMessageId = null;
 
+// Conversation "delete" from the inbox list. There is no DELETE policy on
+// public.conversations (participants can only read/insert/update — verified
+// against pg_policies), so a real server-side delete isn't possible without
+// a schema change. This hides the conversation from THIS device's list only
+// — the data and the other participant's view are both untouched.
+function getHiddenConversations(){
+  try { return new Set(JSON.parse(localStorage.getItem('orhano_hidden_conversations') || '[]')); }
+  catch(e) { return new Set(); }
+}
+function hideConversationLocally(conversationId){
+  const hidden = getHiddenConversations();
+  hidden.add(String(conversationId));
+  localStorage.setItem('orhano_hidden_conversations', JSON.stringify([...hidden]));
+}
+let convLongPressTimer = null;
+function wireConversationLongPress(){
+  const list = $('#messagesList');
+  if (!list) return;
+  list.addEventListener('pointerdown', e => {
+    const row = e.target.closest('.chat-conv-row[data-open-chat]');
+    if (!row) return;
+    clearTimeout(convLongPressTimer);
+    convLongPressTimer = setTimeout(() => {
+      if (confirm('এই কথোপকথনটা আপনার ইনবক্স থেকে সরিয়ে ফেলতে চান? এটা শুধু এই ডিভাইসে সরানো হবে — মেসেজগুলো ডাটাবেসে থেকে যাবে এবং অন্য পক্ষ এখনো দেখতে পাবে।')) {
+        hideConversationLocally(row.dataset.openChat);
+        renderConversationList();
+      }
+    }, 500);
+  });
+  const cancel = () => clearTimeout(convLongPressTimer);
+  list.addEventListener('pointerup', cancel);
+  list.addEventListener('pointercancel', cancel);
+  list.addEventListener('pointermove', cancel);
+}
+
 function wireChatLongPress(){
   const body = $('#chatThreadBody');
   if (!body) return;
@@ -2448,11 +2483,18 @@ async function renderConversationList(){
     return;
   }
 
+  const hiddenIds = getHiddenConversations();
+  const visibleData = data.filter(c => !hiddenIds.has(String(c.id)));
+  if (!visibleData.length) {
+    list.innerHTML = `<p style="padding:16px;color:var(--ink-soft);font-size:0.85rem;">No conversations to show.</p>`;
+    return;
+  }
+
   const { data: unreadRows } = await sb.from('messages').select('conversation_id').is('read_at', null).neq('sender_id', myId);
   const unreadByConv = {};
   (unreadRows || []).forEach(r => { unreadByConv[r.conversation_id] = (unreadByConv[r.conversation_id] || 0) + 1; });
 
-  list.innerHTML = data.map(c => {
+  list.innerHTML = visibleData.map(c => {
     const isBuyer = c.buyer_id === myId;
     const other = isBuyer ? c.seller : c.buyer;
     const otherName = other?.full_name || 'User';
@@ -2472,6 +2514,7 @@ async function renderConversationList(){
       </div>
     </div>`;
   }).join('');
+  wireConversationLongPress();
 }
 
 /* ---------- render: categories ---------- */

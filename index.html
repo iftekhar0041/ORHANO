@@ -2264,7 +2264,8 @@ function openMessageOptions(msgId){
   const isTextOnly = bubble?.dataset.textOnly === 'true';
   window.ORHANO_V4.modal('Message options', `
     ${isTextOnly ? `<button class="mini-btn" id="v4MsgEdit" style="width:100%;margin-bottom:8px;">✏️ Edit</button>` : ''}
-    <button class="mini-btn danger" id="v4MsgDelete" style="width:100%;">🗑️ Delete</button>
+    <button class="mini-btn danger" id="v4MsgDelete" style="width:100%;margin-bottom:8px;">🗑️ Delete this message</button>
+    <button class="mini-btn danger" id="v4MsgDeleteAll" style="width:100%;">🗑️ Delete all my messages in this chat</button>
   `, el => {
     const editBtn = el.querySelector('#v4MsgEdit');
     if (editBtn) editBtn.onclick = () => {
@@ -2275,7 +2276,32 @@ function openMessageOptions(msgId){
       window.ORHANO_V4.closeModal();
       if (confirm('Delete this message?')) deleteMessage(msgId);
     };
+    el.querySelector('#v4MsgDeleteAll').onclick = () => {
+      window.ORHANO_V4.closeModal();
+      if (confirm('আপনার এই চ্যাটে পাঠানো সব মেসেজ ডিলেট করতে চান? অন্য পক্ষের মেসেজ থাকবে, শুধু আপনারগুলো মুছে যাবে। এটা ফিরিয়ে আনা যাবে না।')) {
+        deleteAllMyMessages(state.currentConversationId);
+      }
+    };
   });
+}
+
+// Bulk-delete: removes every message the SIGNED-IN user sent in this
+// conversation. Can only ever affect the caller's own rows — RLS on
+// `messages` (sender_id = auth.uid()) enforces that regardless of what
+// this function requests, so it can't be used to delete the other party's
+// messages even if called with a different id by mistake.
+async function deleteAllMyMessages(conversationId){
+  if (!authState.user || !conversationId) return;
+  const { error } = await sb.from('messages').delete()
+    .eq('conversation_id', conversationId).eq('sender_id', authState.user.id);
+  if (error) {
+    toast(/permission|policy|rls/i.test(error.message)
+      ? 'You do not have permission to delete these messages.'
+      : 'Could not delete: ' + error.message);
+    return;
+  }
+  await renderChatThread(conversationId);
+  toast('Your messages in this chat were deleted');
 }
 
 function enterEditMode(msgId, text){

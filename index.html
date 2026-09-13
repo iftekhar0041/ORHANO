@@ -3495,6 +3495,7 @@ const ADMIN_ORDER_STATUSES = ['pending', 'processing', 'shipped', 'delivered', '
 let adminAllSellersCache = [];
 let adminProductCountBySellerCache = {};
 let adminSellerAppsCache = [];
+let adminSellerStatsCache = {};
 
 // Task 13D-1: pending seller applications, now also showing email/mobile
 // (from adminUsersCache — see loadAdminUsers) alongside the existing
@@ -3525,10 +3526,19 @@ function renderAdminSellerApps(){
 // Edge Function for the "All users" section), not a new lookup. And/Pending
 // sellers still surface separately above (Seller applications); this list
 // now also includes 'rejected' so nothing vanishes from admin view.
+// Task 13D-2: seller rows now also show account-created date, order count,
+// and total sales — created date comes from adminUsersCache (same
+// admin-users Edge Function data as email/mobile), order count/sales from
+// adminSellerStatsCache (the SAME per-seller aggregation already computed
+// for Top Sellers, just not limited to the top 5). No new queries.
 function adminSellerRowHtml(s){
   const count = adminProductCountBySellerCache[s.id] || 0;
   const contact = adminUsersCache.find(u => u.id === s.id);
   const contactLine = contact ? `${contact.email || 'No email'} · ${contact.phone || 'No mobile'} · ` : '';
+  const joinedLine = contact?.created_at ? `Joined ${new Date(contact.created_at).toLocaleDateString()} · ` : '';
+  const stats = adminSellerStatsCache[s.id];
+  const orderCount = stats ? stats.orderIds.size : 0;
+  const sales = stats ? stats.sales : 0;
   const statusLabel = s.seller_status === 'suspended' ? 'Suspended'
     : s.seller_status === 'rejected' ? 'Rejected'
     : 'Approved';
@@ -3539,7 +3549,7 @@ function adminSellerRowHtml(s){
       : `<button class="mini-btn danger" data-seller-suspend="${s.id}">Suspend</button>`;
   return `
       <div class="admin-row">
-        <div class="pcard-name" style="flex:1;">${s.full_name || 'Unnamed user'}<br><span class="pcard-meta">${contactLine}${count} listing(s) · ${statusLabel}</span></div>
+        <div class="pcard-name" style="display:block;flex:1;">${s.full_name || 'Unnamed user'}<br><span class="pcard-meta">${contactLine}${joinedLine}${statusLabel}<br>${count} listing(s) · ${orderCount} order(s) · ${money(sales)} sales</span></div>
         ${actionBtn}
       </div>`;
 }
@@ -3816,6 +3826,11 @@ async function renderAdmin(){
     });
     sellersInThisOrder.forEach(sid => sellerAgg[sid].orderIds.add(o.id));
   });
+
+  // Task 13D-2: cached so adminSellerRowHtml can show order count/sales per
+  // seller — this is the SAME aggregation already computed for Top Sellers
+  // just below; no new query, just keeping the full (not top-5) map too.
+  adminSellerStatsCache = sellerAgg;
 
   const topSellers = Object.values(sellerAgg).sort((a, b) => b.sales - a.sales).slice(0, 5);
   const topProducts = Object.values(productAgg).sort((a, b) => b.sales - a.sales).slice(0, 5);

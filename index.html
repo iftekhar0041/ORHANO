@@ -1073,9 +1073,18 @@ html,body{width:100%;max-width:100%;overflow-x:hidden;-webkit-text-size-adjust:1
       <h2 style="font-size:1rem;">Recent orders</h2>
       <button class="link-btn" id="toggleArchivedBtn">Show archived</button>
     </div>
-    <div style="padding:8px 16px 0;">
+    <div style="padding:8px 16px 0;display:flex;gap:8px;">
       <input id="adminOrderSearch" type="text" placeholder="Search by order #, buyer name or status"
-        style="width:100%;box-sizing:border-box;padding:8px 14px;border:1px solid var(--line);border-radius:999px;font-size:0.8rem;">
+        style="flex:1;min-width:0;box-sizing:border-box;padding:8px 14px;border:1px solid var(--line);border-radius:999px;font-size:0.8rem;">
+      <select id="adminOrderStatusFilter" style="box-sizing:border-box;padding:8px 10px;border:1px solid var(--line);border-radius:999px;font-size:0.8rem;max-width:38%;">
+        <option value="">All statuses</option>
+        <option value="pending">Pending</option>
+        <option value="processing">Processing</option>
+        <option value="shipped">Shipped</option>
+        <option value="delivered">Delivered</option>
+        <option value="cancelled">Cancelled</option>
+        <option value="returned">Returned</option>
+      </select>
     </div>
     <div class="admin-list" id="adminApprovals"></div>
     <div class="section-head" style="padding:14px 16px 0;">
@@ -3681,10 +3690,20 @@ function renderAdminSellers(){
     : `<p class="muted">${q ? 'No matching sellers.' : 'No sellers yet.'}</p>`;
 }
 
-function adminOrderRowHtml(o){
+// Task 13F-1: resolves which seller(s) an order's items belong to using
+// adminProductsCache (already fetched for "All products") — no extra query.
+function adminSellerNamesForOrder(o, productMap){
+  const names = [...new Set((o.order_items || []).map(it => productMap[it.product_id]).filter(Boolean))];
+  return names.length ? names.join(', ') : '—';
+}
+
+function adminOrderRowHtml(o, productMap){
+  const sellerNames = adminSellerNamesForOrder(o, productMap || {});
+  const dateLabel = o.created_at ? new Date(o.created_at).toLocaleDateString() : '—';
+  const paymentLabel = o.payment_status || '—';
   return `
       <div class="admin-row">
-        <div class="pcard-name" style="flex:1;">Order #${o.id} · ${o.profiles?.full_name || 'Unknown buyer'}<br><span class="pcard-meta">${money(Number(o.total))} · ${o.status}</span></div>
+        <div class="pcard-name" style="display:block;flex:1;">Order #${o.id} · ${o.profiles?.full_name || 'Unknown buyer'}<br><span class="pcard-meta">Seller: ${escapeHtml(sellerNames)} · ${dateLabel}<br>${money(Number(o.total))} · ${o.status} · Payment: ${escapeHtml(paymentLabel)}</span></div>
         ${o.status === 'archived' ? `
         <button class="mini-btn primary" data-order-restore="${o.id}">Restore</button>
         <button class="mini-btn danger" data-order-permanent-delete="${o.id}">Delete</button>
@@ -3698,25 +3717,32 @@ function adminOrderRowHtml(o){
       </div>`;
 }
 
-// Task 13D-1: Order search. Empty box = the original 20-most-recent view
-// (unchanged behavior). Typing searches order id / buyer name / status
-// across ALL orders (adminRevenueOrdersCache), not just those 20 — reusing
-// data already fetched, no new query.
+// Task 13D-1: Order search. Empty box + "All statuses" = the original
+// 20-most-recent view (unchanged behavior). Typing OR picking a status
+// filter searches across ALL orders (adminRevenueOrdersCache), not just
+// those 20 — reusing data already fetched, no new query.
 function renderAdminOrders(){
   const container = $('#adminApprovals');
   if (!container) return;
   const q = ($('#adminOrderSearch')?.value || '').trim().toLowerCase();
+  const statusFilter = $('#adminOrderStatusFilter')?.value || '';
 
-  const list = q
-    ? adminRevenueOrdersCache.filter(o =>
-        String(o.id).includes(q) ||
-        (o.profiles?.full_name || '').toLowerCase().includes(q) ||
-        (o.status || '').toLowerCase().includes(q))
+  const productMap = {};
+  adminProductsCache.forEach(p => { productMap[p.id] = p.profiles?.full_name || 'Unknown seller'; });
+
+  const list = (q || statusFilter)
+    ? adminRevenueOrdersCache.filter(o => {
+        const matchesQuery = !q || String(o.id).includes(q) ||
+          (o.profiles?.full_name || '').toLowerCase().includes(q) ||
+          (o.status || '').toLowerCase().includes(q);
+        const matchesStatus = !statusFilter || o.status === statusFilter;
+        return matchesQuery && matchesStatus;
+      })
     : adminVisibleOrdersCache;
 
   container.innerHTML = (list && list.length)
-    ? list.map(adminOrderRowHtml).join('')
-    : `<p class="muted">${q ? 'No matching orders.' : 'No orders yet.'}</p>`;
+    ? list.map(o => adminOrderRowHtml(o, productMap)).join('')
+    : `<p class="muted">${q || statusFilter ? 'No matching orders.' : 'No orders yet.'}</p>`;
 }
 
 async function checkSellerStatus(){
@@ -3910,7 +3936,10 @@ async function renderAdmin(){
     // which was silently emptying productCountBySeller/Top Sellers too.
     // fetchAdminProducts() retries without them and fills safe defaults.
     fetchAdminProducts(),
-    sb.from('orders').select('id, total, status, created_at, profiles(full_name)').order('created_at', { ascending: false }).limit(20),
+    // Task 13F-1: added payment_status and order_items(product_id) to this
+    // SAME query — payment_status for display, product_id so the seller
+    // name(s) can be resolved via adminProductsCache (no extra call).
+    sb.from('orders').select('id, total, status, payment_status, created_at, profiles(full_name), order_items(product_id)').order('created_at', { ascending: false }).limit(20),
     // Task 13B-1: "Total order value" must reflect ALL orders, not just the
     // 20 most recent fetched above for the "Recent orders" list — kept as a
     // separate lightweight query (no join) so it stays cheap at scale.
@@ -3919,7 +3948,8 @@ async function renderAdmin(){
     // Task 13B-4: added created_at to this SAME query for the time filter.
     // Task 13D-1: added id/profiles(full_name) to this SAME query so Order
     // Search can match against every order, not just the 20 most recent.
-    sb.from('orders').select('id, total, status, created_at, profiles(full_name), order_items(quantity, price_at_purchase, product_id)'),
+    // Task 13F-1: added payment_status to this SAME query for display.
+    sb.from('orders').select('id, total, status, payment_status, created_at, profiles(full_name), order_items(quantity, price_at_purchase, product_id)'),
     sb.from('profiles').select('id, full_name').eq('seller_status', 'pending'),
     // Task 13D-1: added 'rejected' — previously rejected sellers vanished
     // from admin view entirely once rejected, with no way to reconsider them.
@@ -5665,6 +5695,7 @@ document.addEventListener('click', async e => {
 const toggleArchivedEl = $('#toggleArchivedBtn');
 $('#adminUserSearch')?.addEventListener('input', () => renderAdminUsers());
 $('#adminOrderSearch')?.addEventListener('input', () => renderAdminOrders());
+$('#adminOrderStatusFilter')?.addEventListener('change', () => renderAdminOrders());
 $('#adminSellerSearch')?.addEventListener('input', () => renderAdminSellers());
 $('#adminProductSearch')?.addEventListener('input', () => renderAdminProducts());
 $('#adminProductSellerFilter')?.addEventListener('change', () => renderAdminProducts());

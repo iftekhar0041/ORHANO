@@ -1046,6 +1046,10 @@ html,body{width:100%;max-width:100%;overflow-x:hidden;-webkit-text-size-adjust:1
     </div>
     <div class="admin-list" id="adminProductsList"></div>
     <div class="section-head" style="padding:14px 16px 0;">
+      <h2 style="font-size:1rem;">Reported products</h2>
+    </div>
+    <div class="admin-list" id="adminReportedProducts"></div>
+    <div class="section-head" style="padding:14px 16px 0;">
       <h2 style="font-size:1rem;">All users</h2>
     </div>
     <div style="padding:8px 16px 0;">
@@ -1459,6 +1463,7 @@ function renderProductDetail(id){
       <div id="pdpDetails" class="pdp-section">
         <h3>Product Details</h3>
         <p class="muted">${escapeHtml(p.description || defaultDescription(p))}</p>
+        <button class="link-btn" data-report-product="${p.id}" style="margin-top:16px;color:var(--brick);">🚩 Report this product</button>
       </div>
 
       <div id="pdpRecommend" class="pdp-section" style="margin-bottom:20px;">
@@ -3130,6 +3135,43 @@ function openProduct(id){
   goto('product', id);
 }
 
+// Task 13E-2: buyer-facing product reporting. Uses public.product_reports
+// (created via the SQL already run) — degrades gracefully with a friendly
+// message if that table isn't there for some reason.
+function openReportProductModal(productId){
+  if (!authState.user) { toast('Sign in to report a product'); return; }
+  if (!window.ORHANO_V4?.modal) return;
+  window.ORHANO_V4.modal('Report this product', `
+    <label style="font-size:0.8rem;font-weight:600;">Reason</label>
+    <select id="reportReasonSelect" style="width:100%;box-sizing:border-box;padding:8px;margin:6px 0 12px;border:1px solid var(--line);border-radius:8px;font-size:0.85rem;">
+      <option value="Fake or counterfeit">Fake or counterfeit</option>
+      <option value="Misleading description">Misleading description</option>
+      <option value="Prohibited item">Prohibited item</option>
+      <option value="Inappropriate content">Inappropriate content</option>
+      <option value="Other">Other</option>
+    </select>
+    <label style="font-size:0.8rem;font-weight:600;">Details (optional)</label>
+    <textarea id="reportDetailsInput" rows="3" placeholder="Tell us more…" style="width:100%;box-sizing:border-box;padding:8px;margin:6px 0 12px;border:1px solid var(--line);border-radius:8px;font-size:0.85rem;"></textarea>
+    <button class="btn-primary" id="reportSubmitBtn" style="width:100%;">Submit report</button>
+  `, el => {
+    el.querySelector('#reportSubmitBtn').onclick = async () => {
+      const reason = el.querySelector('#reportReasonSelect').value;
+      const details = el.querySelector('#reportDetailsInput').value.trim();
+      const { error } = await sb.from('product_reports').insert({
+        product_id: productId, reporter_id: authState.user.id, reason, details: details || null,
+      });
+      window.ORHANO_V4.closeModal();
+      if (error) {
+        toast(/relation|does not exist|schema cache/i.test(error.message)
+          ? "Reporting isn't set up on this database yet."
+          : 'Could not submit report: ' + error.message);
+        return;
+      }
+      toast('Thank you — your report was submitted');
+    };
+  });
+}
+
 function setupAppHistory(){
   if (!history.state || !history.state.orhano) {
     history.replaceState({ orhano:true, type:'view', view:state.view || 'home' }, '', window.location.href);
@@ -3821,6 +3863,21 @@ async function fetchAdminProducts(){
   return { data: [] };
 }
 
+// Task 13E-2: reports are admin-only reads (RLS: is_admin()), joined with
+// product name and reporter name — same embed pattern already used for
+// admin-context reviews/orders elsewhere in this function.
+async function fetchAdminReports(){
+  const { data, error } = await sb.from('product_reports')
+    .select('id, reason, details, status, created_at, product_id, products(name), profiles(full_name)')
+    .eq('status', 'open')
+    .order('created_at', { ascending: false });
+  if (error) {
+    if (!/relation|does not exist|schema cache/i.test(error.message || '')) console.error('Admin reports query failed:', error);
+    return { data: [] };
+  }
+  return { data };
+}
+
 async function renderAdmin(){
   // Defense-in-depth: renderAdmin() no longer trusts that its caller already
   // verified admin access (checkAdminAccess does, but someone could call
@@ -3841,7 +3898,7 @@ async function renderAdmin(){
   $('#adminSellerApps').innerHTML = '';
   $('#adminAllSellers').innerHTML = '';
 
-  const [{ count: userCount }, { data: productsData }, { data: ordersData }, { data: allOrdersForRevenue }, { data: sellerApps }, { data: allSellers }] = await Promise.all([
+  const [{ count: userCount }, { data: productsData }, { data: ordersData }, { data: allOrdersForRevenue }, { data: sellerApps }, { data: allSellers }, { data: reportedProducts }] = await Promise.all([
     sb.from('profiles').select('*', { count: 'exact', head: true }),
     // Task 13B-3: added id/name/profiles(full_name) to this SAME query (used
     // since 13B-2 for seller count) so Top Sellers/Products can resolve
@@ -3867,6 +3924,9 @@ async function renderAdmin(){
     // Task 13D-1: added 'rejected' — previously rejected sellers vanished
     // from admin view entirely once rejected, with no way to reconsider them.
     sb.from('profiles').select('id, full_name, seller_status').in('seller_status', ['approved', 'suspended', 'rejected']).order('full_name'),
+    // Task 13E-2: reported products (product_reports table + SQL already
+    // run). Degrades gracefully below if it somehow isn't there.
+    fetchAdminReports(),
   ]);
 
   $('#adminUsers').textContent = userCount ?? '—';
@@ -3979,6 +4039,17 @@ async function renderAdmin(){
   adminProductsCache = productsData || [];
   populateAdminProductSellerFilter();
   renderAdminProducts();
+
+  // Task 13E-2: Reported products.
+  $('#adminReportedProducts').innerHTML = (reportedProducts && reportedProducts.length)
+    ? reportedProducts.map(r => `
+      <div class="admin-row">
+        <div class="pcard-name" style="display:block;flex:1;">${escapeHtml(r.products?.name || 'Deleted product')}<br>
+          <span class="pcard-meta">Reported by ${escapeHtml(r.profiles?.full_name || 'Unknown')} · ${escapeHtml(r.reason)}${r.details ? ' — ' + escapeHtml(r.details) : ''}</span></div>
+        <button class="mini-btn" data-report-resolve="${r.id}">Resolve</button>
+        <button class="mini-btn danger" data-report-remove-product="${r.id}" data-report-remove-product-id="${r.product_id}">Remove product</button>
+      </div>`).join('')
+    : `<p class="muted">No open reports.</p>`;
 
   const toggleBtn = $('#toggleArchivedBtn');
   if (toggleBtn) toggleBtn.textContent = state.adminShowArchived ? 'Hide archived' : 'Show archived';
@@ -5174,6 +5245,12 @@ document.addEventListener('click', async e => {
     return;
   }
 
+  const reportProductBtn = e.target.closest('[data-report-product]');
+  if (reportProductBtn) {
+    openReportProductModal(Number(reportProductBtn.dataset.reportProduct));
+    return;
+  }
+
   const productDetailsBtn = e.target.closest('[data-admin-product-details]');
   if (productDetailsBtn) {
     showAdminProductDetails(productDetailsBtn.dataset.adminProductDetails);
@@ -5199,6 +5276,30 @@ document.addEventListener('click', async e => {
     if (error) { toast('Remove failed: ' + error.message); return; }
     if (!data || data.length === 0) { toast('Product not removed — a Supabase RLS policy is likely blocking admins from deleting other sellers\' products.'); return; }
     toast('Product removed');
+    renderAdmin();
+    return;
+  }
+
+  const reportResolveBtn = e.target.closest('[data-report-resolve]');
+  if (reportResolveBtn) {
+    const id = reportResolveBtn.dataset.reportResolve;
+    const { error } = await sb.from('product_reports').update({ status: 'resolved', resolved_at: new Date().toISOString() }).eq('id', id);
+    if (error) { toast('Could not resolve report: ' + error.message); return; }
+    toast('Report resolved');
+    renderAdmin();
+    return;
+  }
+
+  const reportRemoveProductBtn = e.target.closest('[data-report-remove-product]');
+  if (reportRemoveProductBtn) {
+    const reportId = reportRemoveProductBtn.dataset.reportRemoveProduct;
+    const productId = reportRemoveProductBtn.dataset.reportRemoveProductId;
+    if (!confirm('এই প্রোডাক্টটা মুছে ফেলে রিপোর্টটাও resolved করতে চান? এটা ফিরিয়ে আনা যাবে না।')) return;
+    const { data, error } = await sb.from('products').delete().eq('id', productId).select();
+    if (error) { toast('Remove failed: ' + error.message); return; }
+    if (!data || data.length === 0) { toast('Product not removed — a Supabase RLS policy is likely blocking admins from deleting other sellers\' products.'); return; }
+    await sb.from('product_reports').update({ status: 'resolved', resolved_at: new Date().toISOString() }).eq('id', reportId);
+    toast('Product removed, report resolved');
     renderAdmin();
     return;
   }

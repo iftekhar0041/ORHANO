@@ -1088,6 +1088,17 @@ html,body{width:100%;max-width:100%;overflow-x:hidden;-webkit-text-size-adjust:1
     </div>
     <div class="admin-list" id="adminApprovals"></div>
     <div class="section-head" style="padding:14px 16px 0;">
+      <h2 style="font-size:1rem;">Payments</h2>
+    </div>
+    <div style="padding:8px 16px 0;display:flex;gap:8px;">
+      <input id="adminPaymentSearch" type="text" placeholder="Search by order # or customer"
+        style="flex:1;min-width:0;box-sizing:border-box;padding:8px 14px;border:1px solid var(--line);border-radius:999px;font-size:0.8rem;">
+      <select id="adminPaymentStatusFilter" style="box-sizing:border-box;padding:8px 10px;border:1px solid var(--line);border-radius:999px;font-size:0.8rem;max-width:38%;">
+        <option value="">All</option>
+      </select>
+    </div>
+    <div class="admin-list" id="adminPaymentsList"></div>
+    <div class="section-head" style="padding:14px 16px 0;">
       <h2 style="font-size:1rem;">Recent reviews</h2>
     </div>
     <div class="admin-list" id="adminReviews"></div>
@@ -3745,6 +3756,44 @@ function renderAdminOrders(){
     : `<p class="muted">${q || statusFilter ? 'No matching orders.' : 'No orders yet.'}</p>`;
 }
 
+// Task 13F-2: Payments — same underlying data as Order Management
+// (adminRevenueOrdersCache = ALL orders, already fetched with payment_status
+// since 13F-1) and the same seller-resolution helper. No new query, no new
+// table — this is a payment-focused view of the same orders.
+// Note: this schema has no separate "payment date" column, so it isn't shown
+// (the task said to include it only if the schema has one).
+function populateAdminPaymentStatusFilter(){
+  const select = $('#adminPaymentStatusFilter');
+  if (!select) return;
+  const current = select.value;
+  const statuses = [...new Set(adminRevenueOrdersCache.map(o => o.payment_status).filter(Boolean))].sort();
+  select.innerHTML = `<option value="">All</option>` + statuses.map(s => `<option value="${s}">${escapeHtml(s)}</option>`).join('');
+  select.value = current;
+}
+
+function renderAdminPayments(){
+  const container = $('#adminPaymentsList');
+  if (!container) return;
+  const q = ($('#adminPaymentSearch')?.value || '').trim().toLowerCase();
+  const statusFilter = $('#adminPaymentStatusFilter')?.value || '';
+
+  const productMap = {};
+  adminProductsCache.forEach(p => { productMap[p.id] = p.profiles?.full_name || 'Unknown seller'; });
+
+  const list = adminRevenueOrdersCache.filter(o => {
+    const matchesQuery = !q || String(o.id).includes(q) || (o.profiles?.full_name || '').toLowerCase().includes(q);
+    const matchesStatus = !statusFilter || o.payment_status === statusFilter;
+    return matchesQuery && matchesStatus;
+  });
+
+  container.innerHTML = list.length
+    ? list.map(o => `
+      <div class="admin-row">
+        <div class="pcard-name" style="display:block;flex:1;">Order #${o.id} · ${o.profiles?.full_name || 'Unknown buyer'}<br><span class="pcard-meta">Seller: ${escapeHtml(adminSellerNamesForOrder(o, productMap))} · ${money(Number(o.total))} · Payment: ${escapeHtml(o.payment_status || '—')}</span></div>
+      </div>`).join('')
+    : `<p class="muted">${q || statusFilter ? 'No matching payments.' : 'No payments yet.'}</p>`;
+}
+
 async function checkSellerStatus(){
   if (!authState.user) return 'none';
   const { data, error } = await sb.from('profiles').select('seller_status').eq('id', authState.user.id).single();
@@ -4090,6 +4139,10 @@ async function renderAdmin(){
   // above) = every order, searched only when the box has text in it.
   adminVisibleOrdersCache = visibleOrders;
   renderAdminOrders();
+
+  // Task 13F-2: Payments — reuses the same caches, populated above.
+  populateAdminPaymentStatusFilter();
+  renderAdminPayments();
 
   // Reviews moderation (req #11). Degrade gracefully if the reviews table
   // hasn't been created yet (see report for the SQL).
@@ -5696,6 +5749,8 @@ const toggleArchivedEl = $('#toggleArchivedBtn');
 $('#adminUserSearch')?.addEventListener('input', () => renderAdminUsers());
 $('#adminOrderSearch')?.addEventListener('input', () => renderAdminOrders());
 $('#adminOrderStatusFilter')?.addEventListener('change', () => renderAdminOrders());
+$('#adminPaymentSearch')?.addEventListener('input', () => renderAdminPayments());
+$('#adminPaymentStatusFilter')?.addEventListener('change', () => renderAdminPayments());
 $('#adminSellerSearch')?.addEventListener('input', () => renderAdminSellers());
 $('#adminProductSearch')?.addEventListener('input', () => renderAdminProducts());
 $('#adminProductSellerFilter')?.addEventListener('change', () => renderAdminProducts());

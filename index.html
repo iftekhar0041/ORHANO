@@ -1013,6 +1013,15 @@ html,body{width:100%;max-width:100%;overflow-x:hidden;-webkit-text-size-adjust:1
       <div class="stat-card"><strong id="adminAOV">—</strong><span>Avg. Order Value</span></div>
     </div>
     <div class="section-head" style="padding:14px 16px 0;">
+      <h2 style="font-size:1rem;">Commission</h2>
+    </div>
+    <div class="stat-row">
+      <div class="stat-card"><strong id="adminCommTotalSales">—</strong><span>Total Sales</span></div>
+      <div class="stat-card"><strong id="adminCommRate">—</strong><span>Commission Rate</span></div>
+      <div class="stat-card"><strong id="adminCommPlatform">—</strong><span>Platform Commission</span></div>
+      <div class="stat-card"><strong id="adminCommSeller">—</strong><span>Seller Earnings</span></div>
+    </div>
+    <div class="section-head" style="padding:14px 16px 0;">
       <h2 style="font-size:1rem;">Sales trend</h2>
     </div>
     <div style="display:flex;gap:8px;padding:10px 16px 0;flex-wrap:wrap;">
@@ -4063,6 +4072,19 @@ async function renderAdmin(){
   const revenueOrders = (allOrdersForRevenue || []).filter(o => state.adminShowArchived || o.status !== 'archived');
   const revenue = revenueOrders.reduce((sum, o) => sum + Number(o.total), 0);
   $('#adminRevenue').textContent = money(revenue);
+
+  // Task 13G-1: Commission — reuses `revenue` (Total Sales) above, no new
+  // query. Commission rate is read from the same localStorage key the
+  // existing commission-settings modal (V4) already saves to, rather than
+  // re-querying platform_settings — that modal's own load is the one
+  // Supabase call for this value; this just displays the last-saved rate.
+  const commissionRate = Number(localStorage.getItem('orhano_commission_rate') || 10);
+  const platformCommission = revenue * (commissionRate / 100);
+  const sellerEarnings = revenue - platformCommission;
+  $('#adminCommTotalSales').textContent = money(revenue);
+  $('#adminCommRate').textContent = commissionRate + '%';
+  $('#adminCommPlatform').textContent = money(platformCommission);
+  $('#adminCommSeller').textContent = money(sellerEarnings);
 
   // Task 13B-4: cache for the time-filter buttons (see renderSalesTrend).
   adminRevenueOrdersCache = revenueOrders;

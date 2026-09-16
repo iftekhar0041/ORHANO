@@ -1022,6 +1022,10 @@ html,body{width:100%;max-width:100%;overflow-x:hidden;-webkit-text-size-adjust:1
       <div class="stat-card"><strong id="adminCommSeller">—</strong><span>Seller Earnings</span></div>
     </div>
     <div class="section-head" style="padding:14px 16px 0;">
+      <h2 style="font-size:1rem;">Seller Earnings</h2>
+    </div>
+    <div class="admin-list" id="adminSellerEarnings"></div>
+    <div class="section-head" style="padding:14px 16px 0;">
       <h2 style="font-size:1rem;">Sales trend</h2>
     </div>
     <div style="display:flex;gap:8px;padding:10px 16px 0;flex-wrap:wrap;">
@@ -4139,6 +4143,21 @@ async function renderAdmin(){
   // seller — this is the SAME aggregation already computed for Top Sellers
   // just below; no new query, just keeping the full (not top-5) map too.
   adminSellerStatsCache = sellerAgg;
+
+  // Task 13G-2: Seller Earnings — reuses sellerAgg (per-seller order
+  // count/sales, same data as Top Sellers just below) and commissionRate
+  // (computed above for the Commission section). No new query, no new table.
+  const sellerEarningsRows = Object.values(sellerAgg).sort((a, b) => b.sales - a.sales);
+  $('#adminSellerEarnings').innerHTML = sellerEarningsRows.length
+    ? sellerEarningsRows.map(s => {
+        const commission = s.sales * (commissionRate / 100);
+        const net = s.sales - commission;
+        return `
+      <div class="admin-row">
+        <div class="pcard-name" style="display:block;flex:1;">${escapeHtml(s.name)}<br><span class="pcard-meta">${s.orderIds.size} order(s) · Sales: ${money(s.sales)} · Commission (${commissionRate}%): ${money(commission)} · Net: ${money(net)}</span></div>
+      </div>`;
+      }).join('')
+    : `<p class="muted">No sales yet.</p>`;
 
   const topSellers = Object.values(sellerAgg).sort((a, b) => b.sales - a.sales).slice(0, 5);
   const topProducts = Object.values(productAgg).sort((a, b) => b.sales - a.sales).slice(0, 5);

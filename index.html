@@ -1137,7 +1137,19 @@ html,body{width:100%;max-width:100%;overflow-x:hidden;-webkit-text-size-adjust:1
     <div class="section-head" style="padding:14px 16px 0;">
       <h2 style="font-size:1rem;">Recent reviews</h2>
     </div>
-    <div class="admin-list" id="adminReviews"></div>
+    <div style="padding:8px 16px 0;display:flex;gap:8px;">
+      <input id="adminReviewSearch" type="text" placeholder="Search by product or buyer name"
+        style="flex:1;min-width:0;box-sizing:border-box;padding:8px 14px;border:1px solid var(--line);border-radius:999px;font-size:0.8rem;">
+      <select id="adminReviewRatingFilter" style="box-sizing:border-box;padding:8px 10px;border:1px solid var(--line);border-radius:999px;font-size:0.8rem;max-width:38%;">
+        <option value="">All ratings</option>
+        <option value="5">★★★★★</option>
+        <option value="4">★★★★☆</option>
+        <option value="3">★★★☆☆</option>
+        <option value="2">★★☆☆☆</option>
+        <option value="1">★☆☆☆☆</option>
+      </select>
+    </div>
+    <div class="admin-list" id="adminReviews"><p class="muted">Loading reviews…</p></div>
   </main>
 
 </div>
@@ -3606,6 +3618,33 @@ let adminProductCountBySellerCache = {};
 let adminSellerAppsCache = [];
 let adminSellerStatsCache = {};
 let adminPayoutsCache = [];
+let adminReviewsCache = [];
+
+// Task 13H-2: search (product/buyer name) + rating filter, reusing the
+// same reviewsData already fetched in renderAdmin — no new query. The
+// existing Remove button/handler (data-admin-review-delete) is unchanged.
+function renderAdminReviews(){
+  const container = $('#adminReviews');
+  if (!container) return;
+  const q = ($('#adminReviewSearch')?.value || '').trim().toLowerCase();
+  const ratingFilter = $('#adminReviewRatingFilter')?.value || '';
+
+  const list = adminReviewsCache.filter(r => {
+    const matchesQuery = !q ||
+      (r.products?.name || '').toLowerCase().includes(q) ||
+      (r.profiles?.full_name || '').toLowerCase().includes(q);
+    const matchesRating = !ratingFilter || String(r.rating) === ratingFilter;
+    return matchesQuery && matchesRating;
+  });
+
+  container.innerHTML = list.length
+    ? list.map(r => `
+      <div class="admin-row">
+        <div class="pcard-name" style="display:block;flex:1;">${'★'.repeat(Number(r.rating))}${'☆'.repeat(5-Number(r.rating))} · ${escapeHtml(r.products?.name || 'Deleted product')}<br><span class="pcard-meta">${escapeHtml(r.profiles?.full_name || 'Buyer')} · ${r.created_at ? new Date(r.created_at).toLocaleDateString() : ''}${r.review_text ? ' · ' + escapeHtml(r.review_text.slice(0,80)) : ''}</span></div>
+        <button class="mini-btn danger" data-admin-review-delete="${r.id}">Remove</button>
+      </div>`).join('')
+    : `<p class="muted">${q || ratingFilter ? 'No matching reviews.' : 'No reviews yet.'}</p>`;
+}
 
 // Task 13G-3: renders the Payouts list from adminPayoutsCache (set in
 // renderAdmin, same computation as Seller Earnings). Search only — no
@@ -4269,13 +4308,17 @@ async function renderAdmin(){
   const { data: reviewsData, error: reviewsErr } = await sb.from('reviews')
     .select('id, rating, review_text, created_at, product_id, profiles(full_name), products(name)')
     .order('created_at', { ascending: false }).limit(30);
-  $('#adminReviews').innerHTML = reviewsErr
-    ? (/relation|does not exist|schema cache/i.test(reviewsErr.message) ? `<p class="muted">Reviews aren't set up on this database yet.</p>` : `<p class="muted" style="color:var(--brick);">Could not load reviews: ${escapeHtml(reviewsErr.message)}</p>`)
-    : (reviewsData && reviewsData.length) ? reviewsData.map(r => `
-      <div class="admin-row">
-        <div class="pcard-name" style="display:block;flex:1;">${'★'.repeat(Number(r.rating))}${'☆'.repeat(5-Number(r.rating))} · ${escapeHtml(r.products?.name || 'Deleted product')}<br><span class="pcard-meta">${escapeHtml(r.profiles?.full_name || 'Buyer')} · ${r.created_at ? new Date(r.created_at).toLocaleDateString() : ''}${r.review_text ? ' · ' + escapeHtml(r.review_text.slice(0,80)) : ''}</span></div>
-        <button class="mini-btn danger" data-admin-review-delete="${r.id}">Remove</button>
-      </div>`).join('') : `<p class="muted">No reviews yet.</p>`;
+  if (reviewsErr) {
+    $('#adminReviews').innerHTML = /relation|does not exist|schema cache/i.test(reviewsErr.message)
+      ? `<p class="muted">Reviews aren't set up on this database yet.</p>`
+      : `<p class="muted" style="color:var(--brick);">Could not load reviews: ${escapeHtml(reviewsErr.message)}</p>`;
+  } else {
+    // Task 13H-2: cached so the search/rating filter can re-render
+    // instantly, reusing this same query result — no new query, no
+    // change to the existing remove logic (data-admin-review-delete).
+    adminReviewsCache = reviewsData || [];
+    renderAdminReviews();
+  }
 
   renderSalesTrend();
   loadAdminUsers();
@@ -5874,6 +5917,8 @@ $('#adminPaymentStatusFilter')?.addEventListener('change', () => renderAdminPaym
 $('#adminRefundSearch')?.addEventListener('input', () => renderAdminRefunds());
 $('#adminRefundStatusFilter')?.addEventListener('change', () => renderAdminRefunds());
 $('#adminPayoutSearch')?.addEventListener('input', () => renderAdminPayouts());
+$('#adminReviewSearch')?.addEventListener('input', () => renderAdminReviews());
+$('#adminReviewRatingFilter')?.addEventListener('change', () => renderAdminReviews());
 $('#adminSellerSearch')?.addEventListener('input', () => renderAdminSellers());
 $('#adminProductSearch')?.addEventListener('input', () => renderAdminProducts());
 $('#adminProductSellerFilter')?.addEventListener('change', () => renderAdminProducts());

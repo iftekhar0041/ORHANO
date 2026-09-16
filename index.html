@@ -4241,7 +4241,7 @@ async function renderAdmin(){
     ? reportedProducts.map(r => `
       <div class="admin-row">
         <div class="pcard-name" style="display:block;flex:1;">${escapeHtml(r.products?.name || 'Deleted product')}<br>
-          <span class="pcard-meta">Reported by ${escapeHtml(r.profiles?.full_name || 'Unknown')} · ${escapeHtml(r.reason)}${r.details ? ' — ' + escapeHtml(r.details) : ''}</span></div>
+          <span class="pcard-meta">Reported by ${escapeHtml(r.profiles?.full_name || 'Unknown')} · ${escapeHtml(r.reason)}${r.details ? ' — ' + escapeHtml(r.details) : ''} · Status: ${escapeHtml(r.status || 'open')}</span></div>
         <button class="mini-btn" data-report-resolve="${r.id}">Resolve</button>
         <button class="mini-btn danger" data-report-remove-product="${r.id}" data-report-remove-product-id="${r.product_id}">Remove product</button>
       </div>`).join('')
@@ -4273,7 +4273,7 @@ async function renderAdmin(){
     ? (/relation|does not exist|schema cache/i.test(reviewsErr.message) ? `<p class="muted">Reviews aren't set up on this database yet.</p>` : `<p class="muted" style="color:var(--brick);">Could not load reviews: ${escapeHtml(reviewsErr.message)}</p>`)
     : (reviewsData && reviewsData.length) ? reviewsData.map(r => `
       <div class="admin-row">
-        <div class="pcard-name" style="flex:1;">${'★'.repeat(Number(r.rating))}${'☆'.repeat(5-Number(r.rating))} · ${escapeHtml(r.products?.name || 'Deleted product')}<br><span class="pcard-meta">${escapeHtml(r.profiles?.full_name || 'Buyer')}${r.review_text ? ' · ' + escapeHtml(r.review_text.slice(0,80)) : ''}</span></div>
+        <div class="pcard-name" style="display:block;flex:1;">${'★'.repeat(Number(r.rating))}${'☆'.repeat(5-Number(r.rating))} · ${escapeHtml(r.products?.name || 'Deleted product')}<br><span class="pcard-meta">${escapeHtml(r.profiles?.full_name || 'Buyer')} · ${r.created_at ? new Date(r.created_at).toLocaleDateString() : ''}${r.review_text ? ' · ' + escapeHtml(r.review_text.slice(0,80)) : ''}</span></div>
         <button class="mini-btn danger" data-admin-review-delete="${r.id}">Remove</button>
       </div>`).join('') : `<p class="muted">No reviews yet.</p>`;
 

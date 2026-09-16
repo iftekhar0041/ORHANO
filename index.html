@@ -1026,6 +1026,15 @@ html,body{width:100%;max-width:100%;overflow-x:hidden;-webkit-text-size-adjust:1
     </div>
     <div class="admin-list" id="adminSellerEarnings"></div>
     <div class="section-head" style="padding:14px 16px 0;">
+      <h2 style="font-size:1rem;">Payouts</h2>
+    </div>
+    <p class="muted" style="padding:0 16px;font-size:0.72rem;">This database has no payout table yet — status shown here is informational only, not a tracked record.</p>
+    <div style="padding:8px 16px 0;">
+      <input id="adminPayoutSearch" type="text" placeholder="Search sellers by name"
+        style="width:100%;box-sizing:border-box;padding:8px 14px;border:1px solid var(--line);border-radius:999px;font-size:0.8rem;">
+    </div>
+    <div class="admin-list" id="adminPayoutsList"></div>
+    <div class="section-head" style="padding:14px 16px 0;">
       <h2 style="font-size:1rem;">Sales trend</h2>
     </div>
     <div style="display:flex;gap:8px;padding:10px 16px 0;flex-wrap:wrap;">
@@ -3596,6 +3605,25 @@ let adminAllSellersCache = [];
 let adminProductCountBySellerCache = {};
 let adminSellerAppsCache = [];
 let adminSellerStatsCache = {};
+let adminPayoutsCache = [];
+
+// Task 13G-3: renders the Payouts list from adminPayoutsCache (set in
+// renderAdmin, same computation as Seller Earnings). Search only — no
+// status filter, since the one "status" available isn't a real tracked
+// value yet.
+function renderAdminPayouts(){
+  const container = $('#adminPayoutsList');
+  if (!container) return;
+  const q = ($('#adminPayoutSearch')?.value || '').trim().toLowerCase();
+  const list = q ? adminPayoutsCache.filter(s => (s.name || '').toLowerCase().includes(q)) : adminPayoutsCache;
+
+  container.innerHTML = list.length
+    ? list.map(s => `
+      <div class="admin-row">
+        <div class="pcard-name" style="display:block;flex:1;">${escapeHtml(s.name)}<br><span class="pcard-meta">Net earnings: ${money(s.net)} · Amount due: ${money(s.net)} · Status: Pending (not tracked)</span></div>
+      </div>`).join('')
+    : `<p class="muted">${q ? 'No matching sellers.' : 'No earnings yet.'}</p>`;
+}
 
 // Task 13E-1: All Products management — reuses productsData (already
 // fetched above, now with price/is_active/stock/image columns added) and
@@ -4147,17 +4175,22 @@ async function renderAdmin(){
   // Task 13G-2: Seller Earnings — reuses sellerAgg (per-seller order
   // count/sales, same data as Top Sellers just below) and commissionRate
   // (computed above for the Commission section). No new query, no new table.
-  const sellerEarningsRows = Object.values(sellerAgg).sort((a, b) => b.sales - a.sales);
+  const sellerEarningsRows = Object.values(sellerAgg).sort((a, b) => b.sales - a.sales)
+    .map(s => ({ ...s, commission: s.sales * (commissionRate / 100), net: s.sales - s.sales * (commissionRate / 100) }));
   $('#adminSellerEarnings').innerHTML = sellerEarningsRows.length
-    ? sellerEarningsRows.map(s => {
-        const commission = s.sales * (commissionRate / 100);
-        const net = s.sales - commission;
-        return `
+    ? sellerEarningsRows.map(s => `
       <div class="admin-row">
-        <div class="pcard-name" style="display:block;flex:1;">${escapeHtml(s.name)}<br><span class="pcard-meta">${s.orderIds.size} order(s) · Sales: ${money(s.sales)} · Commission (${commissionRate}%): ${money(commission)} · Net: ${money(net)}</span></div>
-      </div>`;
-      }).join('')
+        <div class="pcard-name" style="display:block;flex:1;">${escapeHtml(s.name)}<br><span class="pcard-meta">${s.orderIds.size} order(s) · Sales: ${money(s.sales)} · Commission (${commissionRate}%): ${money(s.commission)} · Net: ${money(s.net)}</span></div>
+      </div>`).join('')
     : `<p class="muted">No sales yet.</p>`;
+
+  // Task 13G-3: Payouts — same rows as Seller Earnings just above (no
+  // recomputation), cached so the search box can re-render instantly.
+  // "Payout status" is informational only — there is no payout table to
+  // read a real status from, so every row is labeled the same until one
+  // is added.
+  adminPayoutsCache = sellerEarningsRows;
+  renderAdminPayouts();
 
   const topSellers = Object.values(sellerAgg).sort((a, b) => b.sales - a.sales).slice(0, 5);
   const topProducts = Object.values(productAgg).sort((a, b) => b.sales - a.sales).slice(0, 5);
@@ -5840,6 +5873,7 @@ $('#adminPaymentSearch')?.addEventListener('input', () => renderAdminPayments())
 $('#adminPaymentStatusFilter')?.addEventListener('change', () => renderAdminPayments());
 $('#adminRefundSearch')?.addEventListener('input', () => renderAdminRefunds());
 $('#adminRefundStatusFilter')?.addEventListener('change', () => renderAdminRefunds());
+$('#adminPayoutSearch')?.addEventListener('input', () => renderAdminPayouts());
 $('#adminSellerSearch')?.addEventListener('input', () => renderAdminSellers());
 $('#adminProductSearch')?.addEventListener('input', () => renderAdminProducts());
 $('#adminProductSellerFilter')?.addEventListener('change', () => renderAdminProducts());

@@ -1099,6 +1099,20 @@ html,body{width:100%;max-width:100%;overflow-x:hidden;-webkit-text-size-adjust:1
     </div>
     <div class="admin-list" id="adminPaymentsList"></div>
     <div class="section-head" style="padding:14px 16px 0;">
+      <h2 style="font-size:1rem;">Refunds</h2>
+    </div>
+    <p class="muted" style="padding:0 16px;font-size:0.72rem;">Uses order status as a proxy — this database has no separate refund table/column.</p>
+    <div style="padding:8px 16px 0;display:flex;gap:8px;">
+      <input id="adminRefundSearch" type="text" placeholder="Search by order # or customer"
+        style="flex:1;min-width:0;box-sizing:border-box;padding:8px 14px;border:1px solid var(--line);border-radius:999px;font-size:0.8rem;">
+      <select id="adminRefundStatusFilter" style="box-sizing:border-box;padding:8px 10px;border:1px solid var(--line);border-radius:999px;font-size:0.8rem;max-width:38%;">
+        <option value="">All</option>
+        <option value="cancelled">Cancelled</option>
+        <option value="returned">Returned</option>
+      </select>
+    </div>
+    <div class="admin-list" id="adminRefundsList"></div>
+    <div class="section-head" style="padding:14px 16px 0;">
       <h2 style="font-size:1rem;">Recent reviews</h2>
     </div>
     <div class="admin-list" id="adminReviews"></div>
@@ -3794,6 +3808,35 @@ function renderAdminPayments(){
     : `<p class="muted">${q || statusFilter ? 'No matching payments.' : 'No payments yet.'}</p>`;
 }
 
+// Task 13F-3: Refunds — this database has no refund table/column, so
+// 'cancelled'/'returned' order status is used as the proxy (same grouping
+// as the "Cancelled/Refunded" stat card from 13B-2). Reuses
+// adminRevenueOrdersCache/adminProductsCache (no new query) and
+// adminOrderRowHtml so the SAME existing status dropdown + Save + Delete
+// controls from Order Management serve as the "refund action" — there's no
+// separate refund-processing capability in the schema to wire up instead.
+function renderAdminRefunds(){
+  const container = $('#adminRefundsList');
+  if (!container) return;
+  const q = ($('#adminRefundSearch')?.value || '').trim().toLowerCase();
+  const statusFilter = $('#adminRefundStatusFilter')?.value || '';
+
+  const productMap = {};
+  adminProductsCache.forEach(p => { productMap[p.id] = p.profiles?.full_name || 'Unknown seller'; });
+
+  const list = adminRevenueOrdersCache.filter(o => {
+    const isRefundLike = o.status === 'cancelled' || o.status === 'returned';
+    if (!isRefundLike) return false;
+    const matchesQuery = !q || String(o.id).includes(q) || (o.profiles?.full_name || '').toLowerCase().includes(q);
+    const matchesStatus = !statusFilter || o.status === statusFilter;
+    return matchesQuery && matchesStatus;
+  });
+
+  container.innerHTML = list.length
+    ? list.map(o => adminOrderRowHtml(o, productMap)).join('')
+    : `<p class="muted">${q || statusFilter ? 'No matching refunds.' : 'No cancelled/returned orders yet.'}</p>`;
+}
+
 async function checkSellerStatus(){
   if (!authState.user) return 'none';
   const { data, error } = await sb.from('profiles').select('seller_status').eq('id', authState.user.id).single();
@@ -4143,6 +4186,9 @@ async function renderAdmin(){
   // Task 13F-2: Payments — reuses the same caches, populated above.
   populateAdminPaymentStatusFilter();
   renderAdminPayments();
+
+  // Task 13F-3: Refunds — same caches again, no new query.
+  renderAdminRefunds();
 
   // Reviews moderation (req #11). Degrade gracefully if the reviews table
   // hasn't been created yet (see report for the SQL).
@@ -5751,6 +5797,8 @@ $('#adminOrderSearch')?.addEventListener('input', () => renderAdminOrders());
 $('#adminOrderStatusFilter')?.addEventListener('change', () => renderAdminOrders());
 $('#adminPaymentSearch')?.addEventListener('input', () => renderAdminPayments());
 $('#adminPaymentStatusFilter')?.addEventListener('change', () => renderAdminPayments());
+$('#adminRefundSearch')?.addEventListener('input', () => renderAdminRefunds());
+$('#adminRefundStatusFilter')?.addEventListener('change', () => renderAdminRefunds());
 $('#adminSellerSearch')?.addEventListener('input', () => renderAdminSellers());
 $('#adminProductSearch')?.addEventListener('input', () => renderAdminProducts());
 $('#adminProductSellerFilter')?.addEventListener('change', () => renderAdminProducts());

@@ -6716,19 +6716,24 @@ init();
       <button class="v4-primary" id="v4SaveCommission">Save settings</button>
     `, el => {
       el.querySelector('#v4SaveCommission').onclick = async () => {
-        const value = Math.min(100,Math.max(0,Number(el.querySelector('#v4Commission').value)));
-        const newCurrency = el.querySelector('#v4DefaultCurrency').value;
-        const newMaintenance = el.querySelector('#v4MaintenanceMode').checked;
+        try {
+          const value = Math.min(100,Math.max(0,Number(el.querySelector('#v4Commission').value)));
+          const newCurrency = el.querySelector('#v4DefaultCurrency').value;
+          const newMaintenance = el.querySelector('#v4MaintenanceMode').checked;
 
-        const { error } = await sb.from('platform_settings').upsert([
-          { key: 'commission_rate', value: String(value) },
-          { key: 'default_currency', value: newCurrency },
-          { key: 'maintenance_mode', value: String(newMaintenance) },
-        ]);
-        if (error) { toast('Save failed: '+error.message); return; }
-        V4.commissionRate=value;
-        localStorage.setItem('orhano_commission_rate',String(value));
-        closeModal(); toast('Settings saved');
+          const { error } = await sb.from('platform_settings').upsert([
+            { key: 'commission_rate', value: String(value) },
+            { key: 'default_currency', value: newCurrency },
+            { key: 'maintenance_mode', value: String(newMaintenance) },
+          ]);
+          if (error) { toast('Save failed: '+error.message); return; }
+          V4.commissionRate=value;
+          localStorage.setItem('orhano_commission_rate',String(value));
+          closeModal(); toast('Settings saved');
+        } catch (err) {
+          console.error('Settings save error:', err);
+          toast('Save failed: ' + (err.message || String(err)));
+        }
       };
     });
   }

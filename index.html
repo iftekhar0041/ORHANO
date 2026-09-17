@@ -337,14 +337,10 @@ button{font-family:inherit;cursor:pointer;}
 .pdp-section{margin-top:18px;}
 .pdp-section h3{font-size:0.85rem; font-weight:700; margin-bottom:6px;}
 .pdp-tabs{
-  position:fixed; left:0; right:0; z-index:19;
-  max-width:1200px; margin:0 auto;
+  position:sticky; z-index:19;
   display:flex; gap:0; background:var(--card); border-bottom:1px solid var(--line);
   overflow-x:auto; scrollbar-width:none;
-  transform:translateY(-120%);
-  transition:transform 0.38s cubic-bezier(0.22, 1, 0.36, 1);
 }
-.pdp-tabs.show{ transform:translateY(0); }
 .pdp-tabs::-webkit-scrollbar{display:none;}
 .pdp-tab{
   flex-shrink:0; background:none; border:none; padding:12px 16px 10px;
@@ -1070,6 +1066,15 @@ html,body{width:100%;max-width:100%;overflow-x:hidden;-webkit-text-size-adjust:1
     <div class="section-head" style="padding:14px 16px 0;">
       <h2 style="font-size:1rem;">Reported products</h2>
     </div>
+    <div style="padding:8px 16px 0;display:flex;gap:8px;">
+      <input id="adminReportSearch" type="text" placeholder="Search by product or reporter name"
+        style="flex:1;min-width:0;box-sizing:border-box;padding:8px 14px;border:1px solid var(--line);border-radius:999px;font-size:0.8rem;">
+      <select id="adminReportStatusFilter" style="box-sizing:border-box;padding:8px 10px;border:1px solid var(--line);border-radius:999px;font-size:0.8rem;max-width:38%;">
+        <option value="open">Open</option>
+        <option value="resolved">Resolved</option>
+        <option value="">All</option>
+      </select>
+    </div>
     <div class="admin-list" id="adminReportedProducts"></div>
     <div class="section-head" style="padding:14px 16px 0;">
       <h2 style="font-size:1rem;">All users</h2>
@@ -1470,6 +1475,7 @@ function productCard(p){
 /* ---------- product detail page (PDP) ---------- */
 let pdpQty = 1;
 let pdpScrollHandler = null;
+let pdpResizeHandler = null;
 function defaultDescription(p){
   const cat = CATEGORIES.find(c => c.id === p.cat);
   return `A popular pick in ${cat ? cat.label : 'this category'}, loved by ${p.sold}+ buyers with a ${p.rating}★ average rating. Ships fast with buyer protection on every order.`;
@@ -1554,19 +1560,30 @@ function renderProductDetail(id){
 
 function setupPdpScrollSpy(){
   if (pdpScrollHandler) window.removeEventListener('scroll', pdpScrollHandler);
+  if (pdpResizeHandler) window.removeEventListener('resize', pdpResizeHandler);
   const sectionIds = ['pdpOverview', 'pdpRatings', 'pdpDetails', 'pdpRecommend'];
-  const SHOW_AFTER = 60; // px scrolled past top before the tab bar appears (like Daraz)
+
+  // Position the sticky tab bar directly under the sticky top bar. Sticky
+  // positioning only needs an accurate `top` value — the browser handles
+  // showing/hiding it natively as the page scrolls, so no manual
+  // show/hide class or scroll-triggered recalculation is needed for that
+  // part (unlike the old position:fixed + transform approach, which could
+  // end up stuck mid-page if it recalculated at the wrong moment).
+  pdpResizeHandler = () => {
+    const tabsEl = $('#pdpTabs');
+    const topbarEl = document.querySelector('.topbar');
+    if (!tabsEl) { window.removeEventListener('resize', pdpResizeHandler); return; }
+    tabsEl.style.top = (topbarEl ? topbarEl.getBoundingClientRect().height : 0) + 'px';
+  };
+  pdpResizeHandler();
+  window.addEventListener('resize', pdpResizeHandler);
+
+  // Scroll-spy: still needs to run on scroll, purely to highlight which
+  // tab corresponds to the section currently in view.
   pdpScrollHandler = () => {
     const tabsEl = $('#pdpTabs');
     if (!tabsEl) { window.removeEventListener('scroll', pdpScrollHandler); return; }
-
-    // Position the tab bar directly under the sticky search/top bar.
     const topbarEl = document.querySelector('.topbar');
-    tabsEl.style.top = (topbarEl ? topbarEl.getBoundingClientRect().height : 0) + 'px';
-
-    // Show the tab bar only after scrolling down a bit; hide again near the very top.
-    tabsEl.classList.toggle('show', window.scrollY > SHOW_AFTER);
-
     const offset = tabsEl.getBoundingClientRect().height + (topbarEl ? topbarEl.getBoundingClientRect().height : 0) + 4;
     let current = sectionIds[0];
     for (const sid of sectionIds) {
@@ -3619,6 +3636,44 @@ let adminSellerAppsCache = [];
 let adminSellerStatsCache = {};
 let adminPayoutsCache = [];
 let adminReviewsCache = [];
+let adminReportsCache = [];
+
+// Task 13H-3: search (product/reporter name) + status filter, reusing
+// adminReportsCache (all reports, fetched once in renderAdmin). Resolve/
+// Remove only make sense while a report is still open, so resolved rows
+// show their resolved date instead of those buttons.
+function renderAdminReports(){
+  const container = $('#adminReportedProducts');
+  if (!container) return;
+  const q = ($('#adminReportSearch')?.value || '').trim().toLowerCase();
+  const statusFilter = $('#adminReportStatusFilter')?.value ?? 'open';
+
+  const list = adminReportsCache.filter(r => {
+    const matchesQuery = !q ||
+      (r.products?.name || '').toLowerCase().includes(q) ||
+      (r.profiles?.full_name || '').toLowerCase().includes(q);
+    const matchesStatus = !statusFilter || r.status === statusFilter;
+    return matchesQuery && matchesStatus;
+  });
+
+  container.innerHTML = list.length
+    ? list.map(r => {
+        const createdLabel = r.created_at ? new Date(r.created_at).toLocaleDateString() : '—';
+        const resolvedLabel = r.resolved_at ? new Date(r.resolved_at).toLocaleDateString() : null;
+        const isOpen = r.status !== 'resolved';
+        return `
+      <div class="admin-row">
+        <div class="pcard-name" style="display:block;flex:1;">${escapeHtml(r.products?.name || 'Deleted product')}<br>
+          <span class="pcard-meta">Reported by ${escapeHtml(r.profiles?.full_name || 'Unknown')} · ${escapeHtml(r.reason)}${r.details ? ' — ' + escapeHtml(r.details) : ''}<br>
+          Status: ${escapeHtml(r.status || 'open')} · Reported ${createdLabel}${resolvedLabel ? ' · Resolved ' + resolvedLabel : ''}</span></div>
+        ${isOpen ? `
+        <button class="mini-btn" data-report-resolve="${r.id}">Resolve</button>
+        <button class="mini-btn danger" data-report-remove-product="${r.id}" data-report-remove-product-id="${r.product_id}">Remove product</button>
+        ` : ''}
+      </div>`;
+      }).join('')
+    : `<p class="muted">${q || statusFilter ? 'No matching reports.' : 'No reports yet.'}</p>`;
+}
 
 // Task 13H-2: search (product/buyer name) + rating filter, reusing the
 // same reviewsData already fetched in renderAdmin — no new query. The
@@ -4064,10 +4119,12 @@ async function fetchAdminProducts(){
 // Task 13E-2: reports are admin-only reads (RLS: is_admin()), joined with
 // product name and reporter name — same embed pattern already used for
 // admin-context reviews/orders elsewhere in this function.
+// Task 13H-3: fetches ALL reports (not just 'open') so the status filter
+// can show resolved ones too — same table, same RLS (is_admin()), just no
+// .eq('status','open') restriction anymore.
 async function fetchAdminReports(){
   const { data, error } = await sb.from('product_reports')
-    .select('id, reason, details, status, created_at, product_id, products(name), profiles(full_name)')
-    .eq('status', 'open')
+    .select('id, reason, details, status, created_at, resolved_at, product_id, products(name), profiles(full_name)')
     .order('created_at', { ascending: false });
   if (error) {
     if (!/relation|does not exist|schema cache/i.test(error.message || '')) console.error('Admin reports query failed:', error);
@@ -4275,16 +4332,10 @@ async function renderAdmin(){
   populateAdminProductSellerFilter();
   renderAdminProducts();
 
-  // Task 13E-2: Reported products.
-  $('#adminReportedProducts').innerHTML = (reportedProducts && reportedProducts.length)
-    ? reportedProducts.map(r => `
-      <div class="admin-row">
-        <div class="pcard-name" style="display:block;flex:1;">${escapeHtml(r.products?.name || 'Deleted product')}<br>
-          <span class="pcard-meta">Reported by ${escapeHtml(r.profiles?.full_name || 'Unknown')} · ${escapeHtml(r.reason)}${r.details ? ' — ' + escapeHtml(r.details) : ''} · Status: ${escapeHtml(r.status || 'open')}</span></div>
-        <button class="mini-btn" data-report-resolve="${r.id}">Resolve</button>
-        <button class="mini-btn danger" data-report-remove-product="${r.id}" data-report-remove-product-id="${r.product_id}">Remove product</button>
-      </div>`).join('')
-    : `<p class="muted">No open reports.</p>`;
+  // Task 13E-2/13H-3: Reported products — cached so search/status filter
+  // can re-render instantly, reusing this same query result (no new query).
+  adminReportsCache = reportedProducts || [];
+  renderAdminReports();
 
   const toggleBtn = $('#toggleArchivedBtn');
   if (toggleBtn) toggleBtn.textContent = state.adminShowArchived ? 'Hide archived' : 'Show archived';
@@ -5919,6 +5970,8 @@ $('#adminRefundStatusFilter')?.addEventListener('change', () => renderAdminRefun
 $('#adminPayoutSearch')?.addEventListener('input', () => renderAdminPayouts());
 $('#adminReviewSearch')?.addEventListener('input', () => renderAdminReviews());
 $('#adminReviewRatingFilter')?.addEventListener('change', () => renderAdminReviews());
+$('#adminReportSearch')?.addEventListener('input', () => renderAdminReports());
+$('#adminReportStatusFilter')?.addEventListener('change', () => renderAdminReports());
 $('#adminSellerSearch')?.addEventListener('input', () => renderAdminSellers());
 $('#adminProductSearch')?.addEventListener('input', () => renderAdminProducts());
 $('#adminProductSellerFilter')?.addEventListener('change', () => renderAdminProducts());

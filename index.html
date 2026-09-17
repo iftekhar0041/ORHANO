@@ -1289,7 +1289,10 @@ async function loadProductsFromDB(){
       sold: row.sold_count,
       sellerId: row.seller_id || null,
       sellerName: null,
-      description: row.description || null,
+      // Strip the internal [[ORHANO_IMAGES:...]] token (used just above to
+      // recover extra photos when there's no image_urls column) so buyers
+      // never see this raw marker in the product description.
+      description: (row.description || '').replace(/\s*\[\[ORHANO_IMAGES:.*?\]\]\s*/g, ' ').trim() || null,
       imageUrl: imageUrls[0] || null,
       imageUrls,
     };

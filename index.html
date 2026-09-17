@@ -6091,6 +6091,48 @@ $('#settingsFeedbackBtn')?.addEventListener('click', showFeedback);
 $('#settingsLogoutBtn')?.addEventListener('click', handleSignOut);
 
 /* ---------- init ---------- */
+// Task 13I-1: reads maintenance_mode + default_currency in ONE query
+// (same platform_settings table, no new table/column). Called once at
+// startup, after auth resolves so we know whether the visitor is an admin.
+// Returns true if the app should stop loading (maintenance block shown).
+async function applyPlatformSettings(){
+  try {
+    const { data: rows } = await sb.from('platform_settings').select('key, value')
+      .in('key', ['maintenance_mode', 'default_currency']);
+    const byKey = Object.fromEntries((rows || []).map(r => [r.key, r.value]));
+
+    // Default currency: only overrides a visitor who has never chosen one
+    // themselves (no orhano_currency in localStorage yet) — anyone with an
+    // existing preference, admin or not, keeps it untouched.
+    if (byKey.default_currency && CURRENCIES[byKey.default_currency] && !localStorage.getItem('orhano_currency')) {
+      state.currency = byKey.default_currency;
+      renderCurrencySelect();
+      refreshVisiblePrices();
+    }
+
+    const maintenanceOn = byKey.maintenance_mode === 'true';
+    if (!maintenanceOn) return false;
+
+    let isAdmin = false;
+    if (authState.user) {
+      const { data: profile } = await sb.from('profiles').select('role').eq('id', authState.user.id).single();
+      isAdmin = profile?.role === 'admin';
+    }
+    if (isAdmin) return false;
+
+    document.querySelector('.app').innerHTML = `
+      <div style="min-height:80vh;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:32px 24px;gap:12px;">
+        <div style="font-size:2.5rem;">🛠️</div>
+        <h2 style="font-family:'Fraunces',Georgia,serif;">We'll be back soon</h2>
+        <p class="muted">ORHANO is undergoing scheduled maintenance. Please check back shortly.</p>
+      </div>`;
+    return true;
+  } catch (err) {
+    console.warn('applyPlatformSettings failed (continuing normally):', err.message);
+    return false;
+  }
+}
+
 async function init(){
   setupAppHistory();
   renderCategories();
@@ -6111,6 +6153,8 @@ async function init(){
 
   try {
     await initAuth();
+    const blocked = await applyPlatformSettings();
+    if (blocked) return;
     const ok = await loadProductsFromDB();
     if (ok) renderHomeLists();
   } catch (err) {
@@ -6638,22 +6682,52 @@ init();
     const {data: profile} = await sb.from('profiles').select('role').eq('id',authState.user.id).single();
     if (profile?.role !== 'admin') { toast('Admin access required'); return; }
 
-    const {data: settings} = await sb.from('platform_settings').select('*').eq('key','commission_rate').maybeSingle();
-    const rate = Number(settings?.value ?? V4.commissionRate);
+    // Task 13I-1: one query for every platform_settings row this modal
+    // needs (commission_rate, default_currency, maintenance_mode) instead
+    // of a separate call per setting.
+    const {data: settingsRows} = await sb.from('platform_settings').select('key, value')
+      .in('key', ['commission_rate', 'default_currency', 'maintenance_mode']);
+    const settingsByKey = Object.fromEntries((settingsRows || []).map(r => [r.key, r.value]));
+
+    const rate = Number(settingsByKey.commission_rate ?? V4.commissionRate);
     V4.commissionRate = rate;
+    const defaultCurrency = settingsByKey.default_currency || state.currency || 'BDT';
+    const maintenanceOn = settingsByKey.maintenance_mode === 'true';
+
+    const currencyOptions = Object.entries(CURRENCIES)
+      .map(([code, c]) => `<option value="${code}" ${code === defaultCurrency ? 'selected' : ''}>${c.flag} ${c.country} (${code})</option>`)
+      .join('');
 
     modal('Marketplace Settings', `
       <div class="v4-field"><label>Platform commission (%)</label><input id="v4Commission" type="number" min="0" max="100" step="0.1" value="${rate}"></div>
       <p class="v4-note">This setting is stored in Supabase. Actual seller payout calculations should be performed server-side/with an Edge Function before production payments.</p>
+
+      <div class="v4-field"><label>Default currency / country (for first-time visitors)</label>
+        <select id="v4DefaultCurrency">${currencyOptions}</select>
+      </div>
+      <p class="v4-note">Country follows the chosen currency (e.g. BDT → Bangladesh) — this app pairs the two rather than tracking them separately. Visitors who've already picked their own currency keep that choice; this only sets what brand-new visitors see first.</p>
+
+      <div class="v4-field"><label style="display:flex;align-items:center;gap:8px;">
+        <input id="v4MaintenanceMode" type="checkbox" style="width:auto;" ${maintenanceOn ? 'checked' : ''}> Maintenance mode
+      </label></div>
+      <p class="v4-note">When on, only accounts with role='admin' can use the site — everyone else sees a maintenance message.</p>
+
       <button class="v4-primary" id="v4SaveCommission">Save settings</button>
     `, el => {
       el.querySelector('#v4SaveCommission').onclick = async () => {
         const value = Math.min(100,Math.max(0,Number(el.querySelector('#v4Commission').value)));
-        const {error} = await sb.from('platform_settings').upsert({key:'commission_rate',value:String(value)});
+        const newCurrency = el.querySelector('#v4DefaultCurrency').value;
+        const newMaintenance = el.querySelector('#v4MaintenanceMode').checked;
+
+        const { error } = await sb.from('platform_settings').upsert([
+          { key: 'commission_rate', value: String(value) },
+          { key: 'default_currency', value: newCurrency },
+          { key: 'maintenance_mode', value: String(newMaintenance) },
+        ]);
         if (error) { toast('Save failed: '+error.message); return; }
         V4.commissionRate=value;
         localStorage.setItem('orhano_commission_rate',String(value));
-        closeModal(); toast('Commission setting saved');
+        closeModal(); toast('Settings saved');
       };
     });
   }

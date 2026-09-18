@@ -6126,7 +6126,36 @@ async function applyPlatformSettings(){
         <div style="font-size:2.5rem;">🛠️</div>
         <h2 style="font-family:'Fraunces',Georgia,serif;">We'll be back soon</h2>
         <p class="muted">ORHANO is undergoing scheduled maintenance. Please check back shortly.</p>
+        <button id="maintenanceAdminLink" class="link-btn" style="margin-top:8px;font-size:0.75rem;color:var(--ink-soft);">Site team? Sign in</button>
+        <div id="maintenanceSignIn" style="display:none;flex-direction:column;gap:8px;width:100%;max-width:320px;margin-top:8px;">
+          <input id="maintenanceEmail" type="email" placeholder="Email" style="padding:10px 14px;border:1px solid var(--line);border-radius:999px;">
+          <input id="maintenancePass" type="password" placeholder="Password" style="padding:10px 14px;border:1px solid var(--line);border-radius:999px;">
+          <button id="maintenanceSignInBtn" class="btn-primary">Sign in</button>
+          <p id="maintenanceSignInError" class="muted" style="color:var(--brick);"></p>
+        </div>
       </div>`;
+    // Self-contained sign-in so an admin who isn't already logged in on this
+    // device isn't locked out along with everyone else — reusing the main
+    // sign-in form isn't possible here since it (and the rest of the app)
+    // is exactly what maintenance mode hides.
+    document.getElementById('maintenanceAdminLink').onclick = () => {
+      document.getElementById('maintenanceSignIn').style.display = 'flex';
+    };
+    document.getElementById('maintenanceSignInBtn').onclick = async () => {
+      const email = document.getElementById('maintenanceEmail').value.trim();
+      const password = document.getElementById('maintenancePass').value;
+      const errEl = document.getElementById('maintenanceSignInError');
+      errEl.textContent = '';
+      const { data, error } = await sb.auth.signInWithPassword({ email, password });
+      if (error) { errEl.textContent = error.message; return; }
+      const { data: profile } = await sb.from('profiles').select('role').eq('id', data.user.id).single();
+      if (profile?.role !== 'admin') {
+        errEl.textContent = 'This account does not have admin access.';
+        await sb.auth.signOut();
+        return;
+      }
+      location.reload();
+    };
     return true;
   } catch (err) {
     console.warn('applyPlatformSettings failed (continuing normally):', err.message);

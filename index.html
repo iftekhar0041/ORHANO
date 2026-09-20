@@ -340,7 +340,10 @@ button{font-family:inherit;cursor:pointer;}
   position:sticky; z-index:19;
   display:flex; gap:0; background:var(--card); border-bottom:1px solid var(--line);
   overflow-x:auto; scrollbar-width:none;
+  opacity:0; transform:translateY(-6px); pointer-events:none;
+  transition:opacity 0.32s ease, transform 0.32s ease;
 }
+.pdp-tabs.show{ opacity:1; transform:translateY(0); pointer-events:auto; }
 .pdp-tabs::-webkit-scrollbar{display:none;}
 .pdp-tab{
   flex-shrink:0; background:none; border:none; padding:12px 16px 10px;
@@ -1568,11 +1571,10 @@ function setupPdpScrollSpy(){
   const sectionIds = ['pdpOverview', 'pdpRatings', 'pdpDetails', 'pdpRecommend'];
 
   // Position the sticky tab bar directly under the sticky top bar. Sticky
-  // positioning only needs an accurate `top` value — the browser handles
-  // showing/hiding it natively as the page scrolls, so no manual
-  // show/hide class or scroll-triggered recalculation is needed for that
-  // part (unlike the old position:fixed + transform approach, which could
-  // end up stuck mid-page if it recalculated at the wrong moment).
+  // positioning gives it a stable, reliable place to "land" — the fade
+  // in/out itself is a separate .show toggle below, tied to whether the
+  // bar has actually reached that stuck position yet (not just a scrollY
+  // threshold), so it stays correct regardless of page length.
   pdpResizeHandler = () => {
     const tabsEl = $('#pdpTabs');
     const topbarEl = document.querySelector('.topbar');
@@ -1582,12 +1584,18 @@ function setupPdpScrollSpy(){
   pdpResizeHandler();
   window.addEventListener('resize', pdpResizeHandler);
 
-  // Scroll-spy: still needs to run on scroll, purely to highlight which
-  // tab corresponds to the section currently in view.
+  // Scroll-spy: highlights which tab matches the section in view, AND
+  // fades the bar in once it reaches its sticky "top" position (scrolling
+  // down) and fades it back out once it returns to its normal in-flow
+  // spot (scrolling back up) — matching the reference video's soft
+  // emerge/merge rather than an abrupt show/hide.
   pdpScrollHandler = () => {
     const tabsEl = $('#pdpTabs');
     if (!tabsEl) { window.removeEventListener('scroll', pdpScrollHandler); return; }
     const topbarEl = document.querySelector('.topbar');
+    const stickyTop = parseFloat(tabsEl.style.top) || 0;
+    tabsEl.classList.toggle('show', tabsEl.getBoundingClientRect().top <= stickyTop + 1);
+
     const offset = tabsEl.getBoundingClientRect().height + (topbarEl ? topbarEl.getBoundingClientRect().height : 0) + 4;
     let current = sectionIds[0];
     for (const sid of sectionIds) {

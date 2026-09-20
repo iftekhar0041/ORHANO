@@ -337,7 +337,7 @@ button{font-family:inherit;cursor:pointer;}
 .pdp-section{margin-top:18px;}
 .pdp-section h3{font-size:0.85rem; font-weight:700; margin-bottom:6px;}
 .pdp-tabs{
-  position:sticky; z-index:19;
+  position:fixed; left:0; right:0; max-width:1200px; margin:0 auto; z-index:19;
   display:flex; gap:0; background:var(--card); border-bottom:1px solid var(--line);
   overflow-x:auto; scrollbar-width:none;
   opacity:0; transform:translateY(-6px); pointer-events:none;
@@ -1570,33 +1570,37 @@ function setupPdpScrollSpy(){
   if (pdpResizeHandler) window.removeEventListener('resize', pdpResizeHandler);
   const sectionIds = ['pdpOverview', 'pdpRatings', 'pdpDetails', 'pdpRecommend'];
 
-  // Position the sticky tab bar directly under the sticky top bar. Sticky
-  // positioning gives it a stable, reliable place to "land" — the fade
-  // in/out itself is a separate .show toggle below, tied to whether the
-  // bar has actually reached that stuck position yet (not just a scrollY
-  // threshold), so it stays correct regardless of page length.
+  // The tab bar is position:fixed (guaranteed viewport-relative — no
+  // sticky-context ambiguity), which means it's removed from document flow
+  // from the start and can't be measured via its own getBoundingClientRect
+  // once scrolling begins. Instead, anchor to the element right before it
+  // (the product name) to know where the tab bar naturally belongs on the
+  // page, captured once here and refreshed on resize.
+  let anchorDocTop = 0;
   pdpResizeHandler = () => {
     const tabsEl = $('#pdpTabs');
+    const nameEl = document.querySelector('.pdp-name');
     const topbarEl = document.querySelector('.topbar');
     if (!tabsEl) { window.removeEventListener('resize', pdpResizeHandler); return; }
     tabsEl.style.top = (topbarEl ? topbarEl.getBoundingClientRect().height : 0) + 'px';
+    if (nameEl) anchorDocTop = nameEl.getBoundingClientRect().bottom + window.scrollY;
   };
   pdpResizeHandler();
   window.addEventListener('resize', pdpResizeHandler);
 
-  // Scroll-spy: highlights which tab matches the section in view, AND
-  // fades the bar in once it reaches its sticky "top" position (scrolling
-  // down) and fades it back out once it returns to its normal in-flow
-  // spot (scrolling back up) — matching the reference video's soft
-  // emerge/merge rather than an abrupt show/hide.
+  // Scroll-spy: highlights which tab matches the section in view, AND fades
+  // the bar in once scrolling has passed the product name (its natural
+  // spot), fading it back out on the way back up — the soft emerge/merge
+  // from the reference video, driven by document position rather than a
+  // fragile getBoundingClientRect check on an already-fixed element.
   pdpScrollHandler = () => {
     const tabsEl = $('#pdpTabs');
     if (!tabsEl) { window.removeEventListener('scroll', pdpScrollHandler); return; }
     const topbarEl = document.querySelector('.topbar');
-    const stickyTop = parseFloat(tabsEl.style.top) || 0;
-    tabsEl.classList.toggle('show', tabsEl.getBoundingClientRect().top <= stickyTop + 1);
+    const topbarHeight = topbarEl ? topbarEl.getBoundingClientRect().height : 0;
+    tabsEl.classList.toggle('show', (window.scrollY + topbarHeight) >= anchorDocTop);
 
-    const offset = tabsEl.getBoundingClientRect().height + (topbarEl ? topbarEl.getBoundingClientRect().height : 0) + 4;
+    const offset = tabsEl.getBoundingClientRect().height + topbarHeight + 4;
     let current = sectionIds[0];
     for (const sid of sectionIds) {
       const el = document.getElementById(sid);

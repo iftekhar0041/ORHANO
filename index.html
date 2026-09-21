@@ -1575,30 +1575,40 @@ function setupPdpScrollSpy(){
   // from the start and can't be measured via its own getBoundingClientRect
   // once scrolling begins. Instead, anchor to the element right before it
   // (the product name) to know where the tab bar naturally belongs on the
-  // page, captured once here and refreshed on resize.
+  // page, captured here and refreshed on resize AND once more shortly after
+  // setup — the product image can still be loading when this first runs,
+  // which would otherwise measure a too-small, stale position and make the
+  // bar appear before any real scrolling happens.
   let anchorDocTop = 0;
+  const measureAnchor = () => {
+    const nameEl = document.querySelector('.pdp-name');
+    if (nameEl) anchorDocTop = nameEl.getBoundingClientRect().bottom + window.scrollY;
+  };
   pdpResizeHandler = () => {
     const tabsEl = $('#pdpTabs');
-    const nameEl = document.querySelector('.pdp-name');
     const topbarEl = document.querySelector('.topbar');
     if (!tabsEl) { window.removeEventListener('resize', pdpResizeHandler); return; }
     tabsEl.style.top = (topbarEl ? topbarEl.getBoundingClientRect().height : 0) + 'px';
-    if (nameEl) anchorDocTop = nameEl.getBoundingClientRect().bottom + window.scrollY;
+    measureAnchor();
   };
   pdpResizeHandler();
+  setTimeout(measureAnchor, 400); // re-measure once the product image has likely loaded
   window.addEventListener('resize', pdpResizeHandler);
 
   // Scroll-spy: highlights which tab matches the section in view, AND fades
   // the bar in once scrolling has passed the product name (its natural
-  // spot), fading it back out on the way back up — the soft emerge/merge
-  // from the reference video, driven by document position rather than a
-  // fragile getBoundingClientRect check on an already-fixed element.
+  // spot), fading it back out on the way back up. The `window.scrollY > 24`
+  // guard is a hard floor — regardless of how anchorDocTop was measured,
+  // the bar can never appear before the page has actually been scrolled a
+  // little, so a stale/early measurement can't show it prematurely at the
+  // very top of the page.
   pdpScrollHandler = () => {
     const tabsEl = $('#pdpTabs');
     if (!tabsEl) { window.removeEventListener('scroll', pdpScrollHandler); return; }
     const topbarEl = document.querySelector('.topbar');
     const topbarHeight = topbarEl ? topbarEl.getBoundingClientRect().height : 0;
-    tabsEl.classList.toggle('show', (window.scrollY + topbarHeight) >= anchorDocTop);
+    const shouldShow = window.scrollY > 24 && (window.scrollY + topbarHeight) >= anchorDocTop;
+    tabsEl.classList.toggle('show', shouldShow);
 
     const offset = tabsEl.getBoundingClientRect().height + topbarHeight + 4;
     let current = sectionIds[0];

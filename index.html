@@ -1483,6 +1483,7 @@ function productCard(p){
 let pdpQty = 1;
 let pdpScrollHandler = null;
 let pdpResizeHandler = null;
+let pdpImageResizeObserver = null;
 function defaultDescription(p){
   const cat = CATEGORIES.find(c => c.id === p.cat);
   return `A popular pick in ${cat ? cat.label : 'this category'}, loved by ${p.sold}+ buyers with a ${p.rating}★ average rating. Ships fast with buyer protection on every order.`;
@@ -1575,10 +1576,10 @@ function setupPdpScrollSpy(){
   // from the start and can't be measured via its own getBoundingClientRect
   // once scrolling begins. Instead, anchor to the element right before it
   // (the product name) to know where the tab bar naturally belongs on the
-  // page, captured here and refreshed on resize AND once more shortly after
-  // setup — the product image can still be loading when this first runs,
-  // which would otherwise measure a too-small, stale position and make the
-  // bar appear before any real scrolling happens.
+  // page. A ResizeObserver on the product image re-measures this the
+  // instant its box actually changes size, instead of guessing a fixed
+  // delay — robust on slow connections where a timed re-check could still
+  // fire too early.
   let anchorDocTop = 0;
   const measureAnchor = () => {
     const nameEl = document.querySelector('.pdp-name');
@@ -1592,7 +1593,13 @@ function setupPdpScrollSpy(){
     measureAnchor();
   };
   pdpResizeHandler();
-  setTimeout(measureAnchor, 400); // re-measure once the product image has likely loaded
+  setTimeout(measureAnchor, 400); // cheap immediate fallback
+  const pdpImageEl = document.querySelector('.pdp-image');
+  if (window.ResizeObserver && pdpImageEl) {
+    if (pdpImageResizeObserver) pdpImageResizeObserver.disconnect();
+    pdpImageResizeObserver = new ResizeObserver(measureAnchor);
+    pdpImageResizeObserver.observe(pdpImageEl);
+  }
   window.addEventListener('resize', pdpResizeHandler);
 
   // Scroll-spy: highlights which tab matches the section in view, AND fades

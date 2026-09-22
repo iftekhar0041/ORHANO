@@ -4120,6 +4120,16 @@ async function renderSeller(){
       <button class="mini-btn danger" data-seller-delete="${p.id}">Delete</button>
     </div>`;
   }).join('') : `<p style="padding:16px;color:var(--ink-soft);font-size:0.85rem;">You haven't listed any products yet. Tap "+ Add product" above.</p>`;
+
+  // Task 14B-1 fix: "Open orders" used to be filled in only once, 1800ms
+  // after the app first booted (see the V4 upgrade layer's startup timer).
+  // Since this function resets #sellerOrders to '—' on every visit but never
+  // re-ran that calculation itself, leaving Seller Center and coming back
+  // left the stat stuck on '—' forever. renderSellerV4() (V4 upgrade layer)
+  // now re-runs here too, every time the dashboard renders.
+  if (window.ORHANO_V4 && typeof window.ORHANO_V4.renderSellerV4 === 'function') {
+    try { window.ORHANO_V4.renderSellerV4(); } catch (_) {}
+  }
 }
 
 /* ---------- admin panel (real — gated by profiles.role = 'admin') ---------- */
@@ -6858,7 +6868,8 @@ init();
   // Expose useful controls for future ChatGPT/Claude edits.
   window.ORHANO_V4 = {
     openCheckout, openSellerProductEditor, openAdminSettings,
-    uploadProductImage, modal, closeModal, refresh: async()=>{ await loadProductsFromDB(); renderHomeLists(); }
+    uploadProductImage, modal, closeModal, renderSellerV4,
+    refresh: async()=>{ await loadProductsFromDB(); renderHomeLists(); }
   };
 
   // NOTE (fix): product photos now render directly inside productCard() in

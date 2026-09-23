@@ -3138,13 +3138,6 @@ async function checkout(){
 }
 
 /* ---------- messages ---------- */
-const MESSAGES = {
-  alerts: [
-    { icon:'🎉', title:'Home & Living week', body:'Up to 45% off storage, lighting and decor.', time:'1d' },
-    { icon:'🎁', title:'Buy & win', body:'Spend ৳500+ to enter this week\'s prize draw.', time:'1d' },
-    { icon:'💳', title:'Card offer', body:'12% back with select bank cards, max ৳800.', time:'2d' },
-  ],
-};
 function timeAgo(dateStr){
   const diffMs = Date.now() - new Date(dateStr).getTime();
   const h = Math.floor(diffMs / 3600000);
@@ -3152,6 +3145,23 @@ function timeAgo(dateStr){
   if (h < 24) return h + 'h';
   return Math.floor(h / 24) + 'd';
 }
+
+// Task 14C: real, database-driven Alerts (replaces the old hardcoded promo
+// list). "Seen" state for the categories that have no read/unread column of
+// their own (orders, reviews, review replies, admin items) is tracked the
+// same way this app already tracks "hidden" conversations — a local device
+// flag, not a new table/column. Chat items are the one category with a real
+// server-side read flag (messages.read_at) and are left to that — opening
+// the Alerts tab never marks a chat message read; only opening the actual
+// conversation does, exactly as before.
+function getAlertsSeenState(){
+  try { return JSON.parse(localStorage.getItem('orhano_alerts_seen') || '{}'); }
+  catch(e) { return {}; }
+}
+function saveAlertsSeenState(s){
+  localStorage.setItem('orhano_alerts_seen', JSON.stringify(s));
+}
+
 async function renderMessages(){
   if (state.msgTab === 'chat') return renderConversationList();
   if (state.msgTab === 'orders') {
@@ -3188,19 +3198,204 @@ async function renderMessages(){
       </div>`).join('');
     return;
   }
+  if (state.msgTab === 'alerts') return renderRealAlerts();
+}
 
-  const list = MESSAGES[state.msgTab];
-  $('#messagesList').innerHTML = list.map(m => `
-    <div class="msg-card">
+async function renderRealAlerts(){
+  const list = $('#messagesList');
+  if (!authState.user) {
+    list.innerHTML = `<p style="padding:16px;color:var(--ink-soft);font-size:0.85rem;">Sign in to see your alerts.</p>`;
+    return;
+  }
+  list.innerHTML = `<p style="padding:16px;color:var(--ink-soft);font-size:0.85rem;">Loading…</p>`;
+  const me = authState.user.id;
+  const seen = getAlertsSeenState();
+  const items = [];
+
+  // Who am I? Gates the seller/admin-only queries below the same way
+  // renderSeller()/renderAdmin() already gate their own sections.
+  const { data: myProfile } = await sb.from('profiles').select('role, seller_status').eq('id', me).single();
+  const isAdmin = myProfile?.role === 'admin';
+  const isApprovedSeller = myProfile?.seller_status === 'approved';
+
+  const STATUS_ICON = { pending:'🕓', processing:'📦', shipped:'🚚', delivered:'✅', cancelled:'❌', returned:'↩️', archived:'🗄️' };
+  const STATUS_TEXT = { pending:'Order placed, awaiting payment confirmation', processing:'Your order is being prepared', shipped:'Your order is on its way', delivered:'Your order was delivered', cancelled:'Your order was cancelled', returned:'Your order was returned', archived:'Order archived' };
+
+  // 1) Buyer order alerts — same source as the Orders tab. "Unread" = the
+  // status is different from what this device last saw for that order, so
+  // a status change (e.g. shipped) surfaces as new even for an old order.
+  const { data: myOrders } = await sb.from('orders')
+    .select('id, total, status, created_at').eq('user_id', me)
+    .order('created_at', { ascending: false }).limit(15);
+  (myOrders || []).forEach(o => {
+    items.push({
+      icon: STATUS_ICON[o.status] || '📦',
+      title: `Order #${o.id} — ${money(Number(o.total))}`,
+      body: STATUS_TEXT[o.status] || o.status,
+      ts: o.created_at, unread: seen.orderStatus?.[o.id] !== o.status,
+      gotoAttr: `data-goto="orders" data-orderfilter="all"`,
+      seenKey: ['orderStatus', o.id, o.status],
+    });
+  });
+
+  // 2) Seller order alerts — reuses the same order_items -> products(seller_id)
+  // -> orders join proven in the Seller Center "Open orders" stat (Task 14B).
+  if (isApprovedSeller) {
+    const { data: sellerRows } = await sb.from('order_items')
+      .select('order_id, products!inner(seller_id), orders!inner(id,status,total,created_at)')
+      .eq('products.seller_id', me);
+    const byOrder = {};
+    (sellerRows || []).forEach(r => { if (r.orders) byOrder[r.order_id] = r.orders; });
+    Object.entries(byOrder).forEach(([orderId, o]) => {
+      items.push({
+        icon: '🛍️',
+        title: `Order #${orderId} — ${money(Number(o.total))}`,
+        body: `Status: ${STATUS_TEXT[o.status] || o.status}`,
+        ts: o.created_at, unread: seen.sellerOrderStatus?.[orderId] !== o.status,
+        gotoAttr: `data-goto="seller"`,
+        seenKey: ['sellerOrderStatus', orderId, o.status],
+      });
+    });
+  }
+
+  // 3) Chat alerts — real unread messages (messages.read_at IS NULL), same
+  // query shape already used for the conversation list's unread badges.
+  // These keep the real read state: they stay "unread" here until the
+  // conversation itself is opened, they are never marked seen by this tab.
+  const { data: unreadMsgs } = await sb.from('messages')
+    .select('id, conversation_id, body, created_at, conversations!inner(buyer_id, seller_id, buyer:profiles!conversations_buyer_id_fkey(full_name), seller:profiles!conversations_seller_id_fkey(full_name))')
+    .is('read_at', null).neq('sender_id', me)
+    .order('created_at', { ascending: false }).limit(15);
+  (unreadMsgs || []).forEach(m => {
+    const conv = m.conversations;
+    const isBuyer = conv?.buyer_id === me;
+    const otherName = (isBuyer ? conv?.seller?.full_name : conv?.buyer?.full_name) || 'User';
+    items.push({
+      icon: '💬',
+      title: `New message from ${otherName}`,
+      body: (m.body || '').slice(0, 80) || 'Sent an attachment',
+      ts: m.created_at, unread: true,
+      gotoAttr: `data-open-chat="${m.conversation_id}"`,
+      seenKey: null,
+    });
+  });
+
+  // 4) Review alerts — seller: new review on one of my products. Same
+  // products(seller_id) filter pattern as the seller order query above.
+  if (isApprovedSeller) {
+    const { data: myReviews } = await sb.from('reviews')
+      .select('id, rating, review_text, created_at, product_id, products!inner(seller_id, name)')
+      .eq('products.seller_id', me)
+      .order('created_at', { ascending: false }).limit(15);
+    (myReviews || []).forEach(r => {
+      items.push({
+        icon: '⭐',
+        title: `New review on ${r.products?.name || 'your product'}`,
+        body: `${'★'.repeat(r.rating)}${'☆'.repeat(5 - r.rating)}${r.review_text ? ' · ' + r.review_text.slice(0, 60) : ''}`,
+        ts: r.created_at, unread: !(seen.reviews || []).includes(r.id),
+        gotoAttr: `data-open-product="${r.product_id}"`,
+        seenKey: ['reviews', r.id],
+      });
+    });
+  }
+
+  // 4b) Review-reply alerts — buyer: a seller replied to my review. Product
+  // name is resolved from the already-loaded PRODUCTS catalog (no extra
+  // nested join) and falls back gracefully if the product isn't in it.
+  const { data: myReplies } = await sb.from('review_replies')
+    .select('id, reply_text, created_at, review_id, reviews!inner(buyer_id, product_id)')
+    .eq('reviews.buyer_id', me)
+    .order('created_at', { ascending: false }).limit(15);
+  (myReplies || []).forEach(rr => {
+    const productId = rr.reviews?.product_id;
+    const productName = PRODUCTS.find(p => p.id === productId)?.name || 'a product';
+    items.push({
+      icon: '💬',
+      title: `Seller replied to your review of ${productName}`,
+      body: (rr.reply_text || '').slice(0, 80),
+      ts: rr.created_at, unread: !(seen.replies || []).includes(rr.id),
+      gotoAttr: productId ? `data-open-product="${productId}"` : '',
+      seenKey: ['replies', rr.id],
+    });
+  });
+
+  // 5) Admin alerts — only the two categories the audit confirmed the
+  // existing schema supports (pending seller applications, open product
+  // reports); both are already queried live inside renderAdmin() today.
+  if (isAdmin) {
+    const { data: pendingSellers } = await sb.from('profiles').select('id, full_name').eq('seller_status', 'pending');
+    (pendingSellers || []).forEach(p => {
+      items.push({
+        icon: '🧑‍💼',
+        title: 'Seller application pending',
+        body: `${p.full_name || 'A user'} applied to become a seller`,
+        ts: null, unread: !(seen.pendingSellers || []).includes(p.id),
+        gotoAttr: `data-goto="admin-gate"`,
+        seenKey: ['pendingSellers', p.id],
+      });
+    });
+    const { data: allReports } = await fetchAdminReports();
+    (allReports || []).filter(r => r.status === 'open').forEach(rep => {
+      items.push({
+        icon: '🚩',
+        title: `Product reported: ${rep.products?.name || 'Unknown product'}`,
+        body: rep.reason || 'No reason given',
+        ts: rep.created_at, unread: !(seen.reports || []).includes(rep.id),
+        gotoAttr: `data-goto="admin-gate"`,
+        seenKey: ['reports', rep.id],
+      });
+    });
+  }
+
+  // Newest first; items with no reliable timestamp (pending sellers —
+  // profiles has no created_at exposed here) float to the top instead of
+  // being guessed at.
+  items.sort((a, b) => {
+    if (!a.ts && !b.ts) return 0;
+    if (!a.ts) return -1;
+    if (!b.ts) return 1;
+    return new Date(b.ts) - new Date(a.ts);
+  });
+
+  if (!items.length) {
+    list.innerHTML = `<p style="padding:16px;color:var(--ink-soft);font-size:0.85rem;">No alerts yet. Updates about your orders, chats and reviews will show up here.</p>`;
+    return;
+  }
+
+  const unreadCount = items.filter(i => i.unread).length;
+  const headerHtml = unreadCount
+    ? `<p style="padding:0 2px 4px;color:var(--ink-soft);font-size:0.78rem;">${unreadCount} new update${unreadCount === 1 ? '' : 's'}</p>`
+    : '';
+
+  list.innerHTML = headerHtml + items.map(m => `
+    <div class="msg-card" ${m.gotoAttr} style="cursor:pointer;">
       <div class="msg-icon">${m.icon}</div>
       <div class="msg-body" style="flex:1">
-        <div style="display:flex;align-items:baseline;">
-          <strong>${m.title}</strong>
-          <span class="msg-time">${m.time}</span>
+        <div style="display:flex;align-items:baseline;gap:6px;">
+          <strong>${escapeHtml(m.title)}</strong>
+          ${m.unread ? `<span class="chat-conv-unread" style="flex-shrink:0;">•</span>` : ''}
+          <span class="msg-time">${m.ts ? timeAgo(m.ts) : 'Pending'}</span>
         </div>
-        <p>${m.body}</p>
+        <p>${escapeHtml(m.body || '')}</p>
       </div>
     </div>`).join('');
+
+  // Mark the non-chat items as seen now that they've actually been shown.
+  // Chat items are skipped (seenKey is null) — their real read state only
+  // changes when the conversation itself is opened.
+  let changed = false;
+  items.forEach(m => {
+    if (!m.seenKey) return;
+    const [bucket, id, status] = m.seenKey;
+    if (bucket === 'orderStatus' || bucket === 'sellerOrderStatus') {
+      if (!seen[bucket]) seen[bucket] = {};
+      if (seen[bucket][id] !== status) { seen[bucket][id] = status; changed = true; }
+    } else {
+      if (!seen[bucket]) seen[bucket] = [];
+      if (!seen[bucket].includes(id)) { seen[bucket].push(id); changed = true; }
+    }
+  });
+  if (changed) saveAlertsSeenState(seen);
 }
 
 /* ---------- navigation ---------- */

@@ -1668,8 +1668,11 @@ async function renderStorePage(sellerId){
     : '—';
   const totalSold = sellerProducts.reduce((s,p) => s + Number(p.sold||0), 0);
 
-  const { count: followerCount } = await sb.from('followed_sellers')
-    .select('*', { count: 'exact', head: true }).eq('seller_id', sellerId);
+  // Task: followed_sellers rows are no longer publicly readable (RLS now
+  // scopes SELECT to the follower's own rows or a seller's own followers),
+  // so the public follower count on this page comes from a SECURITY
+  // DEFINER RPC that returns only a count, never raw rows.
+  const { data: followerCount } = await sb.rpc('get_follower_count', { p_seller_id: sellerId });
 
   const following = state.followedShops.has(sellerId);
   const isOwnShop = authState.user && authState.user.id === sellerId;

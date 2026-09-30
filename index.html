@@ -4021,13 +4021,13 @@ function renderAdminSellerApps(){
     ? adminSellerAppsCache.map(p => {
         const existing = adminProductCountBySellerCache[p.id] || 0;
         const contact = adminUsersCache.find(u => u.id === p.id);
-        const contactLine = contact ? `${contact.email || 'No email'} · ${contact.phone || 'No mobile'} · ` : '';
+        const contactLine = contact ? `${contact.email || 'No email'} · ${escapeHtml(contact.phone || 'No mobile')} · ` : '';
         const hint = existing > 0
           ? `⚠️ ${contactLine}${existing} existing listing(s) — likely closed account, not new`
           : `${contactLine}Waiting for review`;
         return `
       <div class="admin-row">
-        <div class="pcard-name" style="display:block;flex:1;">${p.full_name || 'Unnamed user'}<br><span class="pcard-meta">${hint}</span></div>
+        <div class="pcard-name" style="display:block;flex:1;">${escapeHtml(p.full_name || 'Unnamed user')}<br><span class="pcard-meta">${hint}</span></div>
         <button class="mini-btn primary" data-seller-approve="${p.id}">Approve</button>
         <button class="mini-btn danger" data-seller-reject="${p.id}">Reject</button>
       </div>`;
@@ -4048,7 +4048,7 @@ function renderAdminSellerApps(){
 function adminSellerRowHtml(s){
   const count = adminProductCountBySellerCache[s.id] || 0;
   const contact = adminUsersCache.find(u => u.id === s.id);
-  const contactLine = contact ? `${contact.email || 'No email'} · ${contact.phone || 'No mobile'} · ` : '';
+  const contactLine = contact ? `${contact.email || 'No email'} · ${escapeHtml(contact.phone || 'No mobile')} · ` : '';
   const joinedLine = contact?.created_at ? `Joined ${new Date(contact.created_at).toLocaleDateString()} · ` : '';
   const stats = adminSellerStatsCache[s.id];
   const orderCount = stats ? stats.orderIds.size : 0;
@@ -4063,7 +4063,7 @@ function adminSellerRowHtml(s){
       : `<button class="mini-btn danger" data-seller-suspend="${s.id}">Suspend</button>`;
   return `
       <div class="admin-row">
-        <div class="pcard-name" style="display:block;flex:1;">${s.full_name || 'Unnamed user'}<br><span class="pcard-meta">${contactLine}${joinedLine}${statusLabel}<br>${count} listing(s) · ${orderCount} order(s) · ${money(sales)} sales</span></div>
+        <div class="pcard-name" style="display:block;flex:1;">${escapeHtml(s.full_name || 'Unnamed user')}<br><span class="pcard-meta">${contactLine}${joinedLine}${statusLabel}<br>${count} listing(s) · ${orderCount} order(s) · ${money(sales)} sales</span></div>
         ${actionBtn}
       </div>`;
 }
@@ -4094,7 +4094,7 @@ function adminOrderRowHtml(o, productMap){
   const paymentLabel = o.payment_status || '—';
   return `
       <div class="admin-row">
-        <div class="pcard-name" style="display:block;flex:1;">Order #${o.id} · ${o.profiles?.full_name || 'Unknown buyer'}<br><span class="pcard-meta">Seller: ${escapeHtml(sellerNames)} · ${dateLabel}<br>${money(Number(o.total))} · ${o.status} · Payment: ${escapeHtml(paymentLabel)}</span></div>
+        <div class="pcard-name" style="display:block;flex:1;">Order #${o.id} · ${escapeHtml(o.profiles?.full_name || 'Unknown buyer')}<br><span class="pcard-meta">Seller: ${escapeHtml(sellerNames)} · ${dateLabel}<br>${money(Number(o.total))} · ${o.status} · Payment: ${escapeHtml(paymentLabel)}</span></div>
         ${o.status === 'archived' ? `
         <button class="mini-btn primary" data-order-restore="${o.id}">Restore</button>
         <button class="mini-btn danger" data-order-permanent-delete="${o.id}">Delete</button>
@@ -4169,7 +4169,7 @@ function renderAdminPayments(){
   container.innerHTML = list.length
     ? list.map(o => `
       <div class="admin-row">
-        <div class="pcard-name" style="display:block;flex:1;">Order #${o.id} · ${o.profiles?.full_name || 'Unknown buyer'}<br><span class="pcard-meta">Seller: ${escapeHtml(adminSellerNamesForOrder(o, productMap))} · ${money(Number(o.total))} · Payment: ${escapeHtml(o.payment_status || '—')}</span></div>
+        <div class="pcard-name" style="display:block;flex:1;">Order #${o.id} · ${escapeHtml(o.profiles?.full_name || 'Unknown buyer')}<br><span class="pcard-meta">Seller: ${escapeHtml(adminSellerNamesForOrder(o, productMap))} · ${money(Number(o.total))} · Payment: ${escapeHtml(o.payment_status || '—')}</span></div>
       </div>`).join('')
     : `<p class="muted">${q || statusFilter ? 'No matching payments.' : 'No payments yet.'}</p>`;
 }

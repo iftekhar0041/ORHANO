@@ -5729,8 +5729,24 @@ async function performAccountDeletion(){
     if (fnError) console.warn('delete-account function unavailable, using client-side cleanup:', fnError.message);
   } catch(e) { console.warn('delete-account function unavailable, using client-side cleanup:', e); }
 
+  // Closure must succeed before anything else is cleared. If the profile row
+  // cannot be removed, stop here and tell the user instead of reporting success.
+  let profileRemoved = false;
+  try {
+    const { data: deletedRows, error: profDelErr } = await sb.from('profiles').delete().eq('id', uid).select('id');
+    if (profDelErr) throw profDelErr;
+    profileRemoved = Array.isArray(deletedRows) && deletedRows.length === 1;
+  } catch (e) {
+    console.error('Account closure failed:', e);
+  }
+  if (!profileRemoved) {
+    toast('Could not close your account. Nothing was deleted. Please try again later.');
+    const confirmBtn = $('#confirmDeleteBtn');
+    if (confirmBtn) { confirmBtn.disabled = false; confirmBtn.textContent = 'Delete my account'; }
+    return;
+  }
+
   try { await sb.from('followed_sellers').delete().eq('follower_id', uid); } catch(e){}
-  try { await sb.from('profiles').delete().eq('id', uid); } catch(e){}
 
   localStorage.removeItem('orhano_account_prefs');
   localStorage.removeItem('orhano_permissions');

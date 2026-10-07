@@ -1198,6 +1198,8 @@ html,body{width:100%;max-width:100%;overflow-x:hidden;-webkit-text-size-adjust:1
    ====================================================================== */
 
 /* ---------- Supabase connection ---------- */
+const safeColor = c =>
+  (/^#[0-9a-fA-F]{3,8}$/.test(String(c ?? '')) ? c : '#EFE6D2');
 const SUPABASE_URL = 'https://bjdcfxoumvqobaxdmuzx.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJqZGNmeG91bXZxb2JheGRtdXp4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgzNzMyMjYsImV4cCI6MjEwMzk0OTIyNn0.tmF3Km23SNKIcmJluv81y5dum9H25h_IjizGDXoFxd4';
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
@@ -1458,12 +1460,12 @@ function productCard(p){
   const outOfStock = Number(p.stock) <= 0;
   return `
   <div class="pcard" data-id="${p.id}">
-    <div class="pcard-thumb" style="background:${p.bg}">
+    <div class="pcard-thumb" style="background:${safeColor(p.bg)}">
       <span class="discount">-${pct}%</span>
       <button class="wish-btn ${wished ? 'active' : ''}" data-wish="${p.id}" title="Save item" aria-label="Save item">${wished ? '♥' : '♡'}</button>
       ${p.imageUrl
         ? `<img src="${escapeHtml(p.imageUrl)}" alt="${escapeHtml(p.name)}" loading="lazy" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;-webkit-touch-callout:none;">`
-        : `<span style="font-size:2.2rem">${p.emoji}</span>`}
+        : `<span style="font-size:2.2rem">${escapeHtml(p.emoji)}</span>`}
       ${outOfStock ? `<span style="position:absolute;inset:0;background:rgba(255,255,255,.72);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:0.8rem;color:var(--brick);">Out of Stock</span>` : ''}
     </div>
     <div class="pcard-body">
@@ -1498,11 +1500,11 @@ function renderProductDetail(id){
   const wished = state.wishlist.has(p.id);
   const followed = p.sellerId && state.followedShops.has(p.sellerId);
   wrap.innerHTML = `
-    <div class="pdp-image" style="background:${p.bg}">
+    <div class="pdp-image" style="background:${safeColor(p.bg)}">
       <button class="pdp-back" data-goto="home" aria-label="Back">←</button>
       ${pct > 0 ? `<span class="discount" style="position:absolute;top:14px;left:58px;">-${pct}%</span>` : ''}
       <button class="wish-btn ${wished ? 'active' : ''}" data-wish="${p.id}" style="position:absolute;top:14px;right:14px;" title="Save item" aria-label="Save item">${wished ? '♥' : '♡'}</button>
-      <span class="pdp-emoji">${p.emoji}</span>
+      <span class="pdp-emoji">${escapeHtml(p.emoji)}</span>
     </div>
     <div class="pdp-price-row" style="padding:16px 16px 0;">
       <span class="pdp-price">${money(p.price)}</span>
@@ -2124,14 +2126,14 @@ function chatBubbleHtml(m, myId){
   if (m.attachment_type === 'image' && d?.url) {
     attachmentHtml = `<img src="${escapeHtml(d.url)}" class="chat-bubble-image" alt="Photo">`;
   } else if (m.attachment_type === 'product' && d) {
-    attachmentHtml = `<div class="chat-attach-card" data-open-product="${d.id}">
-      <div class="chat-attach-card-thumb" style="background:${d.bg || 'var(--line)'}">${d.image_url ? `<img src="${escapeHtml(d.image_url)}" alt="">` : (d.emoji || '📦')}</div>
+    attachmentHtml = `<div class="chat-attach-card" data-open-product="${escapeHtml(String(d.id ?? ''))}">
+      <div class="chat-attach-card-thumb" style="background:${safeColor(d.bg)}">${d.image_url ? `<img src="${escapeHtml(d.image_url)}" alt="">` : escapeHtml(d.emoji || '📦')}</div>
       <div class="chat-attach-card-body"><strong>${escapeHtml(d.name || 'Product')}</strong><span>${d.price != null ? money(Number(d.price)) : ''}</span></div>
     </div>`;
   } else if (m.attachment_type === 'order' && d) {
-    attachmentHtml = `<div class="chat-attach-card" data-open-order="${d.id}">
+    attachmentHtml = `<div class="chat-attach-card" data-open-order="${escapeHtml(String(d.id ?? ''))}">
       <div class="chat-attach-card-thumb">🧾</div>
-      <div class="chat-attach-card-body"><strong>Order #${d.id}</strong><span>${d.item_count || 0} item${d.item_count === 1 ? '' : 's'}${d.total != null ? ' · ' + money(Number(d.total)) : ''}</span></div>
+      <div class="chat-attach-card-body"><strong>Order #${escapeHtml(String(d.id ?? ''))}</strong><span>${escapeHtml(String(d.item_count || 0))} item${d.item_count === 1 ? '' : 's'}${d.total != null ? ' · ' + money(Number(d.total)) : ''}</span></div>
     </div>`;
   }
   const textPart = m.body ? escapeHtml(m.body) : '';
@@ -2321,7 +2323,7 @@ function openChatProductPicker(sellerId){
   const items = PRODUCTS.filter(p => p.sellerId === sellerId);
   const bodyHtml = items.length
     ? items.map(p => `<div class="chat-picker-row" data-pick-product="${p.id}">
-        <div class="chat-attach-card-thumb" style="background:${p.bg}">${p.imageUrl ? `<img src="${escapeHtml(p.imageUrl)}" alt="">` : p.emoji}</div>
+        <div class="chat-attach-card-thumb" style="background:${safeColor(p.bg)}">${p.imageUrl ? `<img src="${escapeHtml(p.imageUrl)}" alt="">` : escapeHtml(p.emoji)}</div>
         <div class="chat-attach-card-body"><strong>${escapeHtml(p.name)}</strong><span>${money(p.price)}</span></div>
       </div>`).join('')
     : `<p class="muted">No products to share yet.</p>`;
@@ -2840,7 +2842,7 @@ function renderCart(){
     return `
     <div class="cart-row">
       <input type="checkbox" class="cart-select" data-select="${p.id}" ${checked} style="width:18px;height:18px;flex-shrink:0;align-self:center;margin-right:2px;">
-      <div class="cart-thumb" data-open-product="${p.id}" style="background:${p.bg};cursor:pointer;">${p.emoji}</div>
+      <div class="cart-thumb" data-open-product="${p.id}" style="background:${safeColor(p.bg)};cursor:pointer;">${escapeHtml(p.emoji)}</div>
       <div class="cart-info">
         <div class="pcard-name" data-open-product="${p.id}" style="cursor:pointer;">${escapeHtml(p.name)}</div>
         <div class="pcard-price">${money(p.price)}</div>
@@ -3019,13 +3021,17 @@ async function renderShops(){
   }
   const { data, error } = await sb.from('public_profiles').select('id, full_name').in('id', ids);
   if (error) { $('#shopsList').innerHTML = `<p style="padding:16px;color:var(--brick);font-size:0.85rem;">Could not load shops: ${error.message}</p>`; return; }
-  $('#shopsList').innerHTML = data.map(shop => {
-    const liveCount = PRODUCTS.filter(p => p.sellerId === shop.id).length;
+  // Render every followed seller id. Sellers that are no longer visible in
+  // public_profiles (not approved) still appear as "Shop" so they can be unfollowed.
+  const nameById = Object.fromEntries((data || []).map(s => [s.id, s.full_name]));
+  $('#shopsList').innerHTML = ids.map(id => {
+    const liveCount = PRODUCTS.filter(p => p.sellerId === id).length;
+    const name = nameById[id] || 'Shop';
     return `
     <div class="seller-row">
-      <div class="cart-thumb" data-open-shop="${shop.id}" style="background:var(--line);cursor:pointer;">🏬</div>
-      <div class="pcard-name" data-open-shop="${shop.id}" style="cursor:pointer;">${escapeHtml(shop.full_name || 'Shop')}<br><span class="pcard-meta">${liveCount} live listing${liveCount === 1 ? '' : 's'}</span></div>
-      <button class="mini-btn danger" data-unfollow-shop="${shop.id}">Unfollow</button>
+      <div class="cart-thumb" data-open-shop="${id}" style="background:var(--line);cursor:pointer;">🏬</div>
+      <div class="pcard-name" data-open-shop="${id}" style="cursor:pointer;">${escapeHtml(name)}<br><span class="pcard-meta">${liveCount} live listing${liveCount === 1 ? '' : 's'}</span></div>
+      <button class="mini-btn danger" data-unfollow-shop="${id}">Unfollow</button>
     </div>`;
   }).join('');
 }
@@ -3058,7 +3064,7 @@ async function renderOrders(){
       </div>
       ${(o.order_items || []).map(it => {
         const p = PRODUCTS.find(x => x.id === it.product_id);
-        return `<div class="order-item-row" data-open-product="${it.product_id}" style="cursor:pointer;"><span style="font-size:1.2rem">${p ? p.emoji : '📦'}</span> ${p ? escapeHtml(p.name) : 'Item #' + it.product_id} × ${it.quantity}</div>`;
+        return `<div class="order-item-row" data-open-product="${it.product_id}" style="cursor:pointer;"><span style="font-size:1.2rem">${p ? escapeHtml(p.emoji) : '📦'}</span> ${p ? escapeHtml(p.name) : 'Item #' + it.product_id} × ${it.quantity}</div>`;
       }).join('')}
       <div class="order-card-head">
         <span class="pcard-meta">${new Date(o.created_at).toLocaleDateString()}</span>
@@ -4304,7 +4310,7 @@ async function renderSeller(){
     const stock = Math.max(0, Number(p.stock_quantity ?? 0));
     return `
     <div class="seller-row">
-      <div class="cart-thumb" style="background:${p.bg_color};position:relative;overflow:hidden;">${p.image_url ? `<img src="${escapeHtml(p.image_url)}" alt="${escapeHtml(p.name)}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;">` : p.emoji}</div>
+      <div class="cart-thumb" style="background:${safeColor(p.bg_color)};position:relative;overflow:hidden;">${p.image_url ? `<img src="${escapeHtml(p.image_url)}" alt="${escapeHtml(p.name)}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;">` : escapeHtml(p.emoji)}</div>
       <div class="pcard-name">${escapeHtml(p.name)}<br><span class="pcard-meta">${money(Number(p.price))} · ${p.is_active === false ? 'Inactive' : 'Active'} · ${stock === 0 ? '<span style="color:var(--brick);font-weight:700;">Out of Stock</span>' : 'In Stock'}</span></div>
       <div class="qty" style="flex-shrink:0;">
         <button data-seller-stock-step="-1" data-id="${p.id}" aria-label="Decrease stock">−</button>

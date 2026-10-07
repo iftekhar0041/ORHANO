@@ -1467,13 +1467,13 @@ function productCard(p){
       ${outOfStock ? `<span style="position:absolute;inset:0;background:rgba(255,255,255,.72);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:0.8rem;color:var(--brick);">Out of Stock</span>` : ''}
     </div>
     <div class="pcard-body">
-      <div class="pcard-name">${p.name}</div>
+      <div class="pcard-name">${escapeHtml(p.name)}</div>
       <div class="pcard-price-row">
         <span class="pcard-price">${money(p.price)}</span>
         <span class="pcard-was">${money(p.was)}</span>
       </div>
       <div class="pcard-meta">★ ${p.rating} · ${p.sold} sold · ${outOfStock ? `<span style="color:var(--brick);font-weight:700;">Out of Stock</span>` : 'In Stock'}</div>
-      ${p.sellerId ? `<button class="pcard-shop ${followed ? 'active' : ''}" data-follow-shop="${p.sellerId}">🏬 ${p.sellerName || 'Shop'} · ${followed ? 'Following' : 'Follow'}</button>` : ''}
+      ${p.sellerId ? `<button class="pcard-shop ${followed ? 'active' : ''}" data-follow-shop="${p.sellerId}">🏬 ${escapeHtml(p.sellerName || 'Shop')} · ${followed ? 'Following' : 'Follow'}</button>` : ''}
       <button class="pcard-add" data-add="${p.id}" ${outOfStock ? 'disabled style="opacity:.5;cursor:not-allowed;"' : ''}>${outOfStock ? 'Out of Stock' : 'Add to cart'}</button>
     </div>
   </div>`;
@@ -2842,7 +2842,7 @@ function renderCart(){
       <input type="checkbox" class="cart-select" data-select="${p.id}" ${checked} style="width:18px;height:18px;flex-shrink:0;align-self:center;margin-right:2px;">
       <div class="cart-thumb" data-open-product="${p.id}" style="background:${p.bg};cursor:pointer;">${p.emoji}</div>
       <div class="cart-info">
-        <div class="pcard-name" data-open-product="${p.id}" style="cursor:pointer;">${p.name}</div>
+        <div class="pcard-name" data-open-product="${p.id}" style="cursor:pointer;">${escapeHtml(p.name)}</div>
         <div class="pcard-price">${money(p.price)}</div>
         ${overStock ? `<div style="color:var(--brick);font-size:0.75rem;font-weight:700;">Only ${stock} left — reduce quantity</div>` : (stock === 0 ? `<div style="color:var(--brick);font-size:0.75rem;font-weight:700;">Out of Stock</div>` : '')}
         <div class="cart-controls">
@@ -3024,7 +3024,7 @@ async function renderShops(){
     return `
     <div class="seller-row">
       <div class="cart-thumb" data-open-shop="${shop.id}" style="background:var(--line);cursor:pointer;">🏬</div>
-      <div class="pcard-name" data-open-shop="${shop.id}" style="cursor:pointer;">${shop.full_name || 'Shop'}<br><span class="pcard-meta">${liveCount} live listing${liveCount === 1 ? '' : 's'}</span></div>
+      <div class="pcard-name" data-open-shop="${shop.id}" style="cursor:pointer;">${escapeHtml(shop.full_name || 'Shop')}<br><span class="pcard-meta">${liveCount} live listing${liveCount === 1 ? '' : 's'}</span></div>
       <button class="mini-btn danger" data-unfollow-shop="${shop.id}">Unfollow</button>
     </div>`;
   }).join('');
@@ -3058,7 +3058,7 @@ async function renderOrders(){
       </div>
       ${(o.order_items || []).map(it => {
         const p = PRODUCTS.find(x => x.id === it.product_id);
-        return `<div class="order-item-row" data-open-product="${it.product_id}" style="cursor:pointer;"><span style="font-size:1.2rem">${p ? p.emoji : '📦'}</span> ${p ? p.name : 'Item #' + it.product_id} × ${it.quantity}</div>`;
+        return `<div class="order-item-row" data-open-product="${it.product_id}" style="cursor:pointer;"><span style="font-size:1.2rem">${p ? p.emoji : '📦'}</span> ${p ? escapeHtml(p.name) : 'Item #' + it.product_id} × ${it.quantity}</div>`;
       }).join('')}
       <div class="order-card-head">
         <span class="pcard-meta">${new Date(o.created_at).toLocaleDateString()}</span>
@@ -3112,28 +3112,26 @@ async function checkout(){
   if (items.length === 0) return;
 
   try {
-    const { data: order, error: orderErr } = await sb.from('orders')
-      .insert({
-        user_id: authState.user.id, total, status: 'pending',
-        shipping_address: {
-          label: shipTo.label, full_name: shipTo.full_name, phone: shipTo.phone,
-          division: shipTo.division, district: shipTo.district, area: shipTo.area,
-          address: shipTo.address, landmark: shipTo.landmark
-        }
-      })
-      .select().single();
-    if (orderErr) { toast('Order failed: ' + orderErr.message); return; }
-    if (!order) { toast('Order failed: no order returned (check Supabase RLS policies)'); return; }
-
-    const orderItems = items.map(it => ({ ...it, order_id: order.id }));
-    const { error: itemsErr } = await sb.from('order_items').insert(orderItems);
-    if (itemsErr) { toast('Order items failed: ' + itemsErr.message); return; }
+    // Checkout goes through place_order() only — it re-validates price and
+    // stock and creates the order atomically. No direct insert fallback: if
+    // this fails, nothing is created and the user sees why.
+    const { data: rpcResult, error: rpcErr } = await sb.rpc('place_order', {
+      p_items: items.map(it => ({ product_id: it.product_id, quantity: it.quantity })),
+      p_shipping_address: {
+        label: shipTo.label, full_name: shipTo.full_name, phone: shipTo.phone,
+        division: shipTo.division, district: shipTo.district, area: shipTo.area,
+        address: shipTo.address, landmark: shipTo.landmark
+      },
+      p_payment_method: 'cod'
+    });
+    if (rpcErr) { toast('Order failed: ' + rpcErr.message); return; }
+    const orderId = Array.isArray(rpcResult) ? rpcResult[0]?.order_id : rpcResult?.order_id;
 
     await sb.from('cart_items').delete().eq('user_id', authState.user.id);
     state.cart = {};
     renderCartBadge();
     renderCart();
-    toast(`Order #${order.id} placed! Total ${money(total)}`);
+    toast(`Order #${orderId} placed! Total ${money(total)}`);
   } catch (err) {
     console.error('Checkout error:', err);
     toast('Checkout failed: ' + (err && err.message ? err.message : 'unknown error'));
@@ -5798,7 +5796,7 @@ document.addEventListener('click', async e => {
   const productApproveBtn = e.target.closest('[data-admin-product-approve]');
   if (productApproveBtn) {
     const id = productApproveBtn.dataset.adminProductApprove;
-    const { data, error } = await sb.from('products').update({ is_active: true }).eq('id', id).select();
+    const { data, error } = await sb.from('products').update({ is_active: true, admin_suspended: false }).eq('id', id).select();
     if (error) { toast('Approve failed: ' + error.message); return; }
     if (!data || data.length === 0) { toast('Product not approved — a Supabase RLS policy is likely blocking admins from updating other sellers\' products.'); return; }
     toast('Product approved');
@@ -5809,6 +5807,22 @@ document.addEventListener('click', async e => {
   const productRemoveBtn = e.target.closest('[data-admin-product-remove]');
   if (productRemoveBtn) {
     const id = productRemoveBtn.dataset.adminProductRemove;
+    // Products with real order history can't be hard-deleted — order_items
+    // has a foreign key protecting financial/order records — so deactivate
+    // instead and keep every existing order/review reference intact.
+    const { count: orderHistoryCount } = await sb.from('order_items')
+      .select('id', { count: 'exact', head: true }).eq('product_id', id);
+
+    if (orderHistoryCount && orderHistoryCount > 0) {
+      if (!confirm('এই প্রোডাক্টের অর্ডার হিস্ট্রি আছে, তাই এটা মুছে ফেলার বদলে নিষ্ক্রিয় (deactivate) করা হবে। এগিয়ে যেতে চান?')) return;
+      const { data, error } = await sb.from('products').update({ is_active: false, admin_suspended: true }).eq('id', id).select();
+      if (error) { toast('Could not deactivate: ' + error.message); return; }
+      if (!data || data.length === 0) { toast('Product not deactivated — a Supabase RLS policy is likely blocking this.'); return; }
+      toast('This product has order history, so it was deactivated instead of deleted.');
+      renderAdmin();
+      return;
+    }
+
     if (!confirm('এই প্রোডাক্টটা স্থায়ীভাবে মুছে ফেলতে চান? এটা ফিরিয়ে আনা যাবে না।')) return;
     const { data, error } = await sb.from('products').delete().eq('id', id).select();
     if (error) { toast('Remove failed: ' + error.message); return; }
@@ -6727,8 +6741,7 @@ init();
           emoji: existing?.emoji || '🛍️',
           bg_color: existing?.bg_color || '#FFF1E4',
           color_group: existing?.color_group || 'warm',
-          rating: existing?.rating ?? 0,
-          sold_count: existing?.sold_count ?? '0'
+          ...(editing ? {} : { rating: existing?.rating ?? 0, sold_count: existing?.sold_count ?? '0' })
         };
 
         btn.disabled=true; btn.textContent=editing?'Updating…':'Publishing…';
@@ -6844,59 +6857,18 @@ init();
           address: address.address, landmark: address.landmark
         };
         try {
-          // Preferred path: one atomic database transaction that re-validates
-          // stock, creates the order + order_items, and decrements stock —
-          // see place_order() SQL in the report. Row locks inside it make
-          // this safe even if two buyers race for the last unit.
+          // Checkout goes through place_order() only — it re-validates price
+          // and stock and creates the order + order_items atomically, with
+          // row locks safe against concurrent buyers racing for the last
+          // unit. No direct insert fallback: if this fails, nothing is
+          // created and the error is shown as-is.
           const { data: rpcResult, error: rpcErr } = await sb.rpc('place_order', {
             p_items: items.map(x => ({ product_id: x.p.id, quantity: x.qty })),
             p_shipping_address: shippingAddress,
             p_payment_method: V4.payment
           });
-
-          const rpcMissing = rpcErr && (
-            rpcErr.code === 'PGRST202' || rpcErr.code === '42883' ||
-            /could not find the function|does not exist/i.test(rpcErr.message || '')
-          );
-
-          let orderId;
-          if (rpcErr && !rpcMissing) {
-            // The function exists and ran — this is its own validation error
-            // (e.g. insufficient stock). Nothing was created; show it as-is.
-            throw rpcErr;
-          } else if (!rpcErr) {
-            orderId = Array.isArray(rpcResult) ? rpcResult[0]?.order_id : rpcResult?.order_id;
-          } else {
-            // Fallback for databases that haven't run the place_order.sql
-            // migration yet: re-check stock one more time right before
-            // writing, then insert + best-effort decrement per item. This
-            // is not fully atomic across concurrent buyers — see report.
-            const { data: freshRows, error: stockErr } = await sb.from('products')
-              .select('id, stock_quantity').in('id', items.map(x => x.p.id));
-            if (stockErr) throw stockErr;
-            const stockById = new Map((freshRows||[]).map(r => [r.id, Math.max(0, Number(r.stock_quantity ?? 0))]));
-            const short = items.find(x => (stockById.get(x.p.id) ?? 0) < x.qty);
-            if (short) throw new Error(`Only ${stockById.get(short.p.id) ?? 0} left of "${short.p.name}" — please adjust your cart.`);
-
-            const payload = {
-              user_id: authState.user.id, total,
-              status: 'pending', payment_method: V4.payment,
-              payment_status: V4.payment === 'cod' ? 'unpaid' : 'pending',
-              shipping_address: shippingAddress
-            };
-            const { data: order, error } = await sb.from('orders').insert(payload).select().single();
-            if (error) throw error;
-            orderId = order.id;
-            const rows = items.map(x=>({order_id:order.id,product_id:x.p.id,quantity:x.qty,price_at_purchase:x.p.price}));
-            const { error:itemErr } = await sb.from('order_items').insert(rows);
-            if (itemErr) throw itemErr;
-
-            for (const x of items) {
-              const current = stockById.get(x.p.id) ?? 0;
-              await sb.from('products').update({ stock_quantity: Math.max(0, current - x.qty) })
-                .eq('id', x.p.id).eq('stock_quantity', current);
-            }
-          }
+          if (rpcErr) throw rpcErr;
+          const orderId = Array.isArray(rpcResult) ? rpcResult[0]?.order_id : rpcResult?.order_id;
 
           for (const x of items) {
             delete state.cart[x.p.id];

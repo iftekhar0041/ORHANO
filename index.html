@@ -2035,6 +2035,32 @@ async function openOrCreateConversation(sellerId, productId){
   goto('chatThread', conversationId);
 }
 
+// Counterpart display names. The embedded profiles join returns null for the other party (profiles RLS only
+// exposes your own row), so names are fetched separately from the two safe sources:
+//  - I am the buyer: the seller is a shop, read from public_profiles (approved sellers only; public by design).
+//  - I am the seller: the buyer is read through conversation_counterpart_names (only people I share a conversation with).
+// Returns { [userId]: { full_name, avatar_url } }. Never throws: a failed lookup falls back to the role label.
+async function fetchCounterpartNames(rows, myId){
+  const out = {};
+  if (!myId || !rows || !rows.length) return out;
+  const sellerIds = new Set(), buyerIds = new Set();
+  rows.forEach(c => {
+    if (c.buyer_id === myId && c.seller_id) sellerIds.add(c.seller_id);
+    else if (c.seller_id === myId && c.buyer_id) buyerIds.add(c.buyer_id);
+  });
+  try {
+    if (sellerIds.size) {
+      const { data } = await sb.from('public_profiles').select('id, full_name, avatar_url').in('id', [...sellerIds]);
+      (data || []).forEach(p => { out[p.id] = { full_name: p.full_name, avatar_url: p.avatar_url }; });
+    }
+    if (buyerIds.size) {
+      const { data } = await sb.rpc('conversation_counterpart_names', { p_user_ids: [...buyerIds] });
+      (data || []).forEach(p => { out[p.id] = { full_name: p.full_name, avatar_url: p.avatar_url }; });
+    }
+  } catch (e) { /* lookup unavailable: keep the role label */ }
+  return out;
+}
+
 // Render sequence numbers. Each renderer takes a number on entry; after every await it stops if a newer
 // render of the same region has started, or if the user has moved to a different tab/conversation.
 let chatListRenderSeq = 0;
@@ -2077,9 +2103,11 @@ async function renderChatThread(conversationId){
     wrap.innerHTML = `<p class="page-title">You don't have access to this chat.</p><button class="btn-primary" style="margin:0 16px;" data-goto="messages">Back to messages</button>`;
     return;
   }
-  const other = isBuyer ? conv.seller : conv.buyer;
   const otherId = isBuyer ? conv.seller_id : conv.buyer_id;
-  const otherName = other?.full_name || 'User';
+  const counterpartNames = await fetchCounterpartNames([conv], authState.user.id);
+  if (!isCurrent()) return;
+  const otherInfo = counterpartNames[otherId] || null;
+  const otherName = otherInfo?.full_name || (isBuyer ? 'Seller' : 'Buyer');
 
   const { data: messages, error: msgListErr } = await sb.from('messages')
     .select('id, sender_id, body, created_at, read_at, attachment_type, attachment_data, edited_at')
@@ -2121,7 +2149,7 @@ async function renderChatThread(conversationId){
       <button type="button" class="chat-emoji-btn" id="chatEmojiToggle" aria-label="Emoji">🙂</button>
       <button class="chat-send-btn" id="chatSendBtn" aria-label="Send message">➤</button>
     </div>`;
-  applyAvatar($('#chatThreadAvatar'), otherName, other?.avatar_url);
+  applyAvatar($('#chatThreadAvatar'), otherName, otherInfo?.avatar_url);
   renderChatMessages(messages || [], authState.user.id);
   wireChatAttachments(conversationId, conv.seller_id, conv.buyer_id);
   wireChatEmoji();
@@ -2705,14 +2733,16 @@ async function renderConversationList(){
 
   const { data: unreadRows } = await sb.from('messages').select('conversation_id').is('read_at', null).neq('sender_id', myId);
   if (!isCurrent()) return;
+  const counterpartNames = await fetchCounterpartNames(visibleData, myId);
+  if (!isCurrent()) return;
   const unreadByConv = {};
   (unreadRows || []).forEach(r => { unreadByConv[r.conversation_id] = (unreadByConv[r.conversation_id] || 0) + 1; });
 
   list.innerHTML = visibleData.map(c => {
     const isBuyer = c.buyer_id === myId;
-    const other = isBuyer ? c.seller : c.buyer;
-    const otherName = other?.full_name || 'User';
     const roleLabel = isBuyer ? 'Seller' : 'Buyer';
+    const otherId = isBuyer ? c.seller_id : c.buyer_id;
+    const otherName = counterpartNames[otherId]?.full_name || roleLabel;
     const productLine = c.products?.name ? ` · Re: ${escapeHtml(c.products.name)}` : '';
     const unread = unreadByConv[c.id] || 0;
     return `
@@ -3356,10 +3386,13 @@ async function renderRealAlerts(){
     .is('read_at', null).neq('sender_id', me)
     .order('created_at', { ascending: false }).limit(15);
   if (!isCurrent()) return;
+  const alertNames = await fetchCounterpartNames((unreadMsgs || []).map(m => m.conversations).filter(Boolean), me);
+  if (!isCurrent()) return;
   (unreadMsgs || []).forEach(m => {
     const conv = m.conversations;
     const isBuyer = conv?.buyer_id === me;
-    const otherName = (isBuyer ? conv?.seller?.full_name : conv?.buyer?.full_name) || 'User';
+    const otherId = isBuyer ? conv?.seller_id : conv?.buyer_id;
+    const otherName = alertNames[otherId]?.full_name || (isBuyer ? 'Seller' : 'Buyer');
     items.push({
       icon: '💬',
       title: `New message from ${otherName}`,

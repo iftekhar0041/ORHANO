@@ -2035,7 +2035,16 @@ async function openOrCreateConversation(sellerId, productId){
   goto('chatThread', conversationId);
 }
 
+// Render sequence numbers. Each renderer takes a number on entry; after every await it stops if a newer
+// render of the same region has started, or if the user has moved to a different tab/conversation.
+let chatListRenderSeq = 0;
+let alertsRenderSeq = 0;
+let chatThreadRenderSeq = 0;
+let ordersRenderSeq = 0;
+
 async function renderChatThread(conversationId){
+  const seq = ++chatThreadRenderSeq;
+  const isCurrent = () => seq === chatThreadRenderSeq && String(state.currentConversationId) === String(conversationId);
   const wrap = $('#view-chatThread');
   editingMessageId = null;
   if (!conversationId || !authState.user) {
@@ -2049,6 +2058,7 @@ async function renderChatThread(conversationId){
     .select('id, buyer_id, seller_id, buyer:profiles!conversations_buyer_id_fkey(full_name,avatar_url), seller:profiles!conversations_seller_id_fkey(full_name,avatar_url)')
     .eq('id', conversationId).single();
 
+  if (!isCurrent()) return;
   if (convErr || !conv) {
     wrap.innerHTML = /relation|does not exist|schema cache/i.test(convErr?.message || '')
       ? `<p class="page-title">Chat isn't set up on this database yet.</p><button class="btn-primary" style="margin:0 16px;" data-goto="messages">Back</button>`
@@ -2076,6 +2086,7 @@ async function renderChatThread(conversationId){
     .eq('conversation_id', conversationId)
     .order('created_at', { ascending: true });
 
+  if (!isCurrent()) return;
   console.info('[chat] thread', conversationId, 'history rows:', messages ? messages.length : 0, msgListErr ? 'error: ' + msgListErr.message : 'ok');
   if (msgListErr) {
     wrap.innerHTML = `<div class="chat-thread-head"><button class="chat-thread-back" data-goto="messages" aria-label="Back">←</button><strong style="font-size:0.9rem;">${escapeHtml(otherName)}</strong></div>
@@ -2657,6 +2668,8 @@ async function updateMsgDot(){
 }
 
 async function renderConversationList(){
+  const seq = ++chatListRenderSeq;
+  const isCurrent = () => seq === chatListRenderSeq && state.msgTab === 'chat';
   const list = $('#messagesList');
   if (!authState.user) {
     list.innerHTML = `<p style="padding:16px;color:var(--ink-soft);font-size:0.85rem;">Sign in to chat with buyers and sellers.</p>`;
@@ -2668,6 +2681,7 @@ async function renderConversationList(){
     .select('id, buyer_id, seller_id, product_id, last_message_at, last_message_text, buyer:profiles!conversations_buyer_id_fkey(full_name,avatar_url), seller:profiles!conversations_seller_id_fkey(full_name,avatar_url), products(name)')
     .or(`buyer_id.eq.${myId},seller_id.eq.${myId}`)
     .order('last_message_at', { ascending: false, nullsFirst: false });
+  if (!isCurrent()) return;
 
   if (error) {
     list.innerHTML = /relation|does not exist|schema cache/i.test(error.message)
@@ -2690,6 +2704,7 @@ async function renderConversationList(){
   }
 
   const { data: unreadRows } = await sb.from('messages').select('conversation_id').is('read_at', null).neq('sender_id', myId);
+  if (!isCurrent()) return;
   const unreadByConv = {};
   (unreadRows || []).forEach(r => { unreadByConv[r.conversation_id] = (unreadByConv[r.conversation_id] || 0) + 1; });
 
@@ -3232,6 +3247,8 @@ function saveAlertsSeenState(s){
 async function renderMessages(){
   if (state.msgTab === 'chat') return renderConversationList();
   if (state.msgTab === 'orders') {
+    const ordersSeq = ++ordersRenderSeq;
+    const isOrdersCurrent = () => ordersSeq === ordersRenderSeq && state.msgTab === 'orders';
     $('#messagesList').innerHTML = `<p style="padding:16px;color:var(--ink-soft);font-size:0.85rem;">Loading…</p>`;
     if (!authState.user) {
       $('#messagesList').innerHTML = `<p style="padding:16px;color:var(--ink-soft);font-size:0.85rem;">Sign in to see your order updates.</p>`;
@@ -3242,6 +3259,7 @@ async function renderMessages(){
       .eq('user_id', authState.user.id)
       .order('created_at', { ascending: false })
       .limit(20);
+    if (!isOrdersCurrent()) return;
     if (error) {
       $('#messagesList').innerHTML = `<p style="padding:16px;color:var(--brick);font-size:0.85rem;">Could not load orders: ${error.message}</p>`;
       return;
@@ -3269,6 +3287,8 @@ async function renderMessages(){
 }
 
 async function renderRealAlerts(){
+  const seq = ++alertsRenderSeq;
+  const isCurrent = () => seq === alertsRenderSeq && state.msgTab === 'alerts';
   const list = $('#messagesList');
   if (!authState.user) {
     list.innerHTML = `<p style="padding:16px;color:var(--ink-soft);font-size:0.85rem;">Sign in to see your alerts.</p>`;
@@ -3282,6 +3302,7 @@ async function renderRealAlerts(){
   // Who am I? Gates the seller/admin-only queries below the same way
   // renderSeller()/renderAdmin() already gate their own sections.
   const { data: myProfile } = await sb.from('profiles').select('role, seller_status').eq('id', me).single();
+  if (!isCurrent()) return;
   const isAdmin = myProfile?.role === 'admin';
   const isApprovedSeller = myProfile?.seller_status === 'approved';
 
@@ -3294,6 +3315,7 @@ async function renderRealAlerts(){
   const { data: myOrders } = await sb.from('orders')
     .select('id, total, status, created_at').eq('user_id', me)
     .order('created_at', { ascending: false }).limit(15);
+  if (!isCurrent()) return;
   (myOrders || []).forEach(o => {
     items.push({
       icon: STATUS_ICON[o.status] || '📦',
@@ -3310,6 +3332,7 @@ async function renderRealAlerts(){
   if (isApprovedSeller) {
     const { data: sellerRows } = await sb.from('seller_order_headers')
       .select('id, status, total, created_at');
+    if (!isCurrent()) return;
     const byOrder = {};
     (sellerRows || []).forEach(o => { byOrder[o.id] = o; });
     Object.entries(byOrder).forEach(([orderId, o]) => {
@@ -3332,6 +3355,7 @@ async function renderRealAlerts(){
     .select('id, conversation_id, body, created_at, conversations!inner(buyer_id, seller_id, buyer:profiles!conversations_buyer_id_fkey(full_name), seller:profiles!conversations_seller_id_fkey(full_name))')
     .is('read_at', null).neq('sender_id', me)
     .order('created_at', { ascending: false }).limit(15);
+  if (!isCurrent()) return;
   (unreadMsgs || []).forEach(m => {
     const conv = m.conversations;
     const isBuyer = conv?.buyer_id === me;
@@ -3353,6 +3377,7 @@ async function renderRealAlerts(){
       .select('id, rating, review_text, created_at, product_id, products!inner(seller_id, name)')
       .eq('products.seller_id', me)
       .order('created_at', { ascending: false }).limit(15);
+    if (!isCurrent()) return;
     (myReviews || []).forEach(r => {
       items.push({
         icon: '⭐',
@@ -3372,6 +3397,7 @@ async function renderRealAlerts(){
     .select('id, reply_text, created_at, review_id, reviews!inner(buyer_id, product_id)')
     .eq('reviews.buyer_id', me)
     .order('created_at', { ascending: false }).limit(15);
+  if (!isCurrent()) return;
   (myReplies || []).forEach(rr => {
     const productId = rr.reviews?.product_id;
     const productName = PRODUCTS.find(p => p.id === productId)?.name || 'a product';
@@ -3390,6 +3416,7 @@ async function renderRealAlerts(){
   // reports); both are already queried live inside renderAdmin() today.
   if (isAdmin) {
     const { data: pendingSellers } = await sb.from('profiles').select('id, full_name').eq('seller_status', 'pending');
+    if (!isCurrent()) return;
     (pendingSellers || []).forEach(p => {
       items.push({
         icon: '🧑‍💼',
@@ -3401,6 +3428,7 @@ async function renderRealAlerts(){
       });
     });
     const { data: allReports } = await fetchAdminReports();
+    if (!isCurrent()) return;
     (allReports || []).filter(r => r.status === 'open').forEach(rep => {
       items.push({
         icon: '🚩',

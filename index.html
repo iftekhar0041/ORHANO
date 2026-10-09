@@ -442,6 +442,7 @@ button{font-family:inherit;cursor:pointer;}
 .chat-edit-banner button{border:none;background:none;color:#7A5B00;font-weight:800;font-size:0.75rem;}
 
 .chat-bubble-image{max-width:100%; border-radius:12px; display:block; margin-top:2px;}
+.chat-bubble-image:not([src]){min-height:120px; background:var(--line);}
 .chat-attach-card{
   display:flex; gap:8px; align-items:center; background:rgba(255,255,255,.18);
   border-radius:10px; padding:6px; margin-bottom:4px; cursor:pointer;
@@ -1064,6 +1065,11 @@ html,body{width:100%;max-width:100%;overflow-x:hidden;-webkit-text-size-adjust:1
         style="flex:1;min-width:0;box-sizing:border-box;padding:8px 14px;border:1px solid var(--line);border-radius:999px;font-size:0.8rem;">
       <select id="adminProductSellerFilter" style="box-sizing:border-box;padding:8px 10px;border:1px solid var(--line);border-radius:999px;font-size:0.8rem;max-width:38%;">
         <option value="">All sellers</option>
+      </select>
+      <select id="adminProductReviewFilter" style="box-sizing:border-box;padding:8px 10px;border:1px solid var(--line);border-radius:999px;font-size:0.8rem;max-width:34%;">
+        <option value="">All review states</option>
+        <option value="pending">Pending Review</option>
+        <option value="approved">Approved</option>
       </select>
     </div>
     <div class="admin-list" id="adminProductsList"></div>
@@ -1781,7 +1787,7 @@ async function renderProductReviews(productId){
   body.innerHTML = `<p class="muted">Loading reviews…</p>`;
 
   const { data: reviews, error } = await sb.from('reviews')
-    .select('id, rating, review_text, image_urls, buyer_id, created_at, review_replies(id, reply_text, created_at)')
+    .select('id, rating, review_text, image_urls, buyer_id, created_at, order_item_id, review_replies(id, reply_text, created_at)')
     .eq('product_id', productId)
     .order('created_at', { ascending: false });
 
@@ -1821,7 +1827,7 @@ async function renderProductReviews(productId){
   if (!authState.user) {
     formHtml = `<p class="muted" style="margin-bottom:14px;">Sign in and complete a purchase to write a review.</p>`;
   } else if (myReview) {
-    formHtml = reviewFormHtml({ mode: 'edit', existing: myReview });
+    formHtml = reviewFormHtml({ mode: 'edit', existing: myReview, orderItemId: myReview.order_item_id });
   } else if (isOwnProductSeller) {
     formHtml = ''; // sellers don't review their own products
   } else {
@@ -1920,7 +1926,7 @@ async function submitReview(){
   btn.disabled = true; btn.textContent = 'Saving…';
   try {
     const uploaded = await Promise.all(
-      reviewDraft.images.map(img => window.ORHANO_V4.uploadProductImage(img.file, 'review-' + productId))
+      reviewDraft.images.map(img => window.ORHANO_V4.uploadReviewPhoto(img.file, orderItemId))
     );
     const reviewText = $('#reviewTextInput').value.trim();
 
@@ -1949,7 +1955,9 @@ async function submitReview(){
   } catch (err) {
     const msg = /relation|does not exist|schema cache/i.test(err.message || '')
       ? 'Reviews aren\'t set up on this database yet — see the report for the required SQL.'
-      : 'Could not save review: ' + err.message;
+      : err.friendly
+        ? 'Could not save review: ' + err.message
+        : 'Could not save review. Please try again.';
     toast(msg);
     btn.disabled = false; btn.textContent = mode === 'edit' ? 'Update review' : 'Submit review';
   }
@@ -2107,6 +2115,7 @@ function renderChatMessages(messages, myId){
   if (!body) return;
   body.innerHTML = messages.length ? messages.map(m => chatBubbleHtml(m, myId)).join('')
     : `<p class="muted" style="text-align:center;margin-top:30px;">No messages yet — say hello!</p>`;
+  hydrateChatImages(body);
   scrollChatToBottom(true);
 }
 
@@ -2118,6 +2127,27 @@ function scrollChatToBottom(force){
   requestAnimationFrame(() => { body.scrollTop = body.scrollHeight; });
 }
 
+// M3C: private chat photos. The message stores only the storage path; the image is shown through a
+// short-lived signed URL that is kept in memory for rendering only.
+const chatPhotoUrlCache = new Map(); // storage path -> { url, expiresAt }
+async function chatPhotoSignedUrl(path){
+  const hit = chatPhotoUrlCache.get(path);
+  if (hit && hit.expiresAt - Date.now() > 60 * 1000) return hit.url;
+  const { data, error } = await sb.storage.from('chat-attachments').createSignedUrl(path, 3600);
+  if (error || !data?.signedUrl) return null;
+  chatPhotoUrlCache.set(path, { url: data.signedUrl, expiresAt: Date.now() + 3600 * 1000 });
+  return data.signedUrl;
+}
+async function hydrateChatImages(root){
+  if (!root) return;
+  const imgs = root.querySelectorAll('img[data-chat-path]:not([src])');
+  await Promise.all([...imgs].map(async img => {
+    const url = await chatPhotoSignedUrl(img.dataset.chatPath);
+    if (url) img.src = url;
+    else img.alt = 'Photo unavailable';
+  }));
+}
+
 function chatBubbleHtml(m, myId){
   const mine = m.sender_id === myId;
   const time = m.created_at ? new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
@@ -2125,6 +2155,8 @@ function chatBubbleHtml(m, myId){
   const d = m.attachment_data;
   if (m.attachment_type === 'image' && d?.url) {
     attachmentHtml = `<img src="${escapeHtml(d.url)}" class="chat-bubble-image" alt="Photo">`;
+  } else if (m.attachment_type === 'image' && d?.path) {
+    attachmentHtml = `<img data-chat-path="${escapeHtml(d.path)}" class="chat-bubble-image" alt="Photo">`;
   } else if (m.attachment_type === 'product' && d) {
     attachmentHtml = `<div class="chat-attach-card" data-open-product="${escapeHtml(String(d.id ?? ''))}">
       <div class="chat-attach-card-thumb" style="background:${safeColor(d.bg)}">${d.image_url ? `<img src="${escapeHtml(d.image_url)}" alt="">` : escapeHtml(d.emoji || '📦')}</div>
@@ -2160,7 +2192,7 @@ async function insertChatRow(conversationId, fields, previewText){
     } else if (/permission|policy|rls/i.test(msg)) {
       friendly = 'You do not have permission to send in this conversation.';
     } else {
-      friendly = 'Could not send: ' + msg;
+      friendly = fields.attachment_type === 'image' ? 'Could not send photo. Please try again.' : 'Could not send: ' + msg;
     }
     toast(friendly);
     return null;
@@ -2172,6 +2204,7 @@ async function insertChatRow(conversationId, fields, previewText){
     if (empty) empty.remove();
     if (!body.querySelector(`[data-msg-id="${inserted.id}"]`)) {
       body.insertAdjacentHTML('beforeend', chatBubbleHtml(inserted, authState.user.id));
+      hydrateChatImages(body);
       scrollChatToBottom(true);
     }
   }
@@ -2213,6 +2246,7 @@ async function sendChatMessage(){
     } else {
       const oldBubble = document.querySelector(`[data-msg-id="${msgId}"]`);
       if (oldBubble) oldBubble.outerHTML = chatBubbleHtml(updated, authState.user.id);
+      hydrateChatImages($('#chatThreadBody'));
       await sb.from('conversations').update({
         last_message_at: updated.created_at, last_message_text: (updated.body || '').slice(0, 120)
       }).eq('id', conversationId);
@@ -2296,13 +2330,15 @@ function wireChatAttachments(conversationId, sellerId, buyerId){
         btn.disabled = true; btn.textContent = 'Sending…';
         const caption = el.querySelector('#v4PhotoCaption').value.trim();
         try {
-          if (!window.ORHANO_V4?.uploadProductImage) throw new Error('Photo upload is unavailable right now.');
-          const url = await window.ORHANO_V4.uploadProductImage(file, 'chat');
+          if (!window.ORHANO_V4?.uploadChatPhoto) throw new Error('Photo upload is unavailable right now.');
+          const path = await window.ORHANO_V4.uploadChatPhoto(file, conversationId);
           window.ORHANO_V4.closeModal();
           URL.revokeObjectURL(previewUrl);
-          await sendChatAttachment('image', { url }, caption || '📷 Photo', caption);
+          await sendChatAttachment('image', { path }, caption || '📷 Photo', caption);
         } catch (err) {
-          toast('Could not send photo: ' + (err.message || err));
+          toast(err.friendly || err.message === 'Photo upload is unavailable right now.'
+            ? 'Could not send photo: ' + err.message
+            : 'Could not send photo. Please try again.');
           btn.disabled = false; btn.textContent = 'Send';
         }
       };
@@ -2555,6 +2591,7 @@ function subscribeToChatRealtime(){
           const empty = body.querySelector('p.muted');
           if (empty) empty.remove();
           body.insertAdjacentHTML('beforeend', chatBubbleHtml(m, authState.user.id));
+          hydrateChatImages(body);
           scrollChatToBottom(mine);
         }
         if (!mine) markConversationRead(m.conversation_id); // only marks read because this exact thread is open
@@ -3245,14 +3282,13 @@ async function renderRealAlerts(){
     });
   });
 
-  // 2) Seller order alerts — reuses the same order_items -> products(seller_id)
-  // -> orders join proven in the Seller Center "Open orders" stat (Task 14B).
+  // 2) Seller order alerts — reads seller_order_headers: only orders containing
+  // this seller's products, and only id, status, total, created_at.
   if (isApprovedSeller) {
-    const { data: sellerRows } = await sb.from('order_items')
-      .select('order_id, products!inner(seller_id), orders!inner(id,status,total,created_at)')
-      .eq('products.seller_id', me);
+    const { data: sellerRows } = await sb.from('seller_order_headers')
+      .select('id, status, total, created_at');
     const byOrder = {};
-    (sellerRows || []).forEach(r => { if (r.orders) byOrder[r.order_id] = r.orders; });
+    (sellerRows || []).forEach(o => { byOrder[o.id] = o; });
     Object.entries(byOrder).forEach(([orderId, o]) => {
       items.push({
         icon: '🛍️',
@@ -3963,14 +3999,16 @@ let adminProductsCache = [];
 function adminProductRowHtml(p){
   const sellerName = p.profiles?.full_name || 'Unnamed seller';
   const active = p.is_active !== false;
+  const pending = p.review_status === 'pending_review';
   const stock = Math.max(0, Number(p.stock_quantity ?? 0));
   return `
       <div class="admin-row">
-        <div class="pcard-name" style="display:block;flex:1;">${escapeHtml(p.name || 'Untitled product')}<br><span class="pcard-meta">${escapeHtml(sellerName)} · ${money(Number(p.price || 0))} · ${active ? 'Active' : 'Inactive'} · Stock: ${stock}</span></div>
+        <div class="pcard-name" style="display:block;flex:1;">${escapeHtml(p.name || 'Untitled product')}${pending ? '<span style="display:inline-block;margin-left:6px;padding:2px 8px;border-radius:999px;background:#FFF1D6;color:#8A5A00;font-size:0.68rem;font-weight:600;vertical-align:middle;">Pending Review</span>' : ''}<br><span class="pcard-meta">${escapeHtml(sellerName)} · ${money(Number(p.price || 0))} · ${active ? 'Active' : 'Inactive'} · Stock: ${stock}</span></div>
         <button class="mini-btn" data-admin-product-details="${p.id}">Details</button>
-        ${active
-          ? `<button class="mini-btn danger" data-admin-product-remove="${p.id}">Remove</button>`
-          : `<button class="mini-btn primary" data-admin-product-approve="${p.id}">Approve</button><button class="mini-btn danger" data-admin-product-remove="${p.id}">Remove</button>`}
+        ${pending
+          ? `<button class="mini-btn primary" data-admin-product-review-approve="${p.id}">Approve</button>`
+          : (!active && p.admin_suspended === true ? `<button class="mini-btn primary" data-admin-product-approve="${p.id}">Approve</button>` : '')}
+        <button class="mini-btn danger" data-admin-product-remove="${p.id}">Remove</button>
       </div>`;
 }
 
@@ -3979,16 +4017,20 @@ function renderAdminProducts(){
   if (!container) return;
   const q = ($('#adminProductSearch')?.value || '').trim().toLowerCase();
   const sellerId = $('#adminProductSellerFilter')?.value || '';
+  const reviewFilter = $('#adminProductReviewFilter')?.value || '';
 
   const list = adminProductsCache.filter(p => {
     const matchesQuery = !q || (p.name || '').toLowerCase().includes(q);
     const matchesSeller = !sellerId || p.seller_id === sellerId;
-    return matchesQuery && matchesSeller;
+    const matchesReview = !reviewFilter || (reviewFilter === 'pending'
+      ? p.review_status === 'pending_review'
+      : p.review_status !== 'pending_review');
+    return matchesQuery && matchesSeller && matchesReview;
   });
 
   container.innerHTML = list.length
     ? list.map(adminProductRowHtml).join('')
-    : `<p class="muted">${q || sellerId ? 'No matching products.' : 'No products yet.'}</p>`;
+    : `<p class="muted">${q || sellerId || reviewFilter ? 'No matching products.' : 'No products yet.'}</p>`;
 }
 
 function populateAdminProductSellerFilter(){
@@ -4092,6 +4134,11 @@ function adminSellerNamesForOrder(o, productMap){
   return names.length ? names.join(', ') : '—';
 }
 
+// Mirrors the database rule: only pending/processing orders that still hold stock can be archived.
+function canArchiveOrder(o){
+  return (o.status === 'pending' || o.status === 'processing') && o.stock_held === true;
+}
+
 function adminOrderRowHtml(o, productMap){
   const sellerNames = adminSellerNamesForOrder(o, productMap || {});
   const dateLabel = o.created_at ? new Date(o.created_at).toLocaleDateString() : '—';
@@ -4100,14 +4147,14 @@ function adminOrderRowHtml(o, productMap){
       <div class="admin-row">
         <div class="pcard-name" style="display:block;flex:1;">Order #${o.id} · ${escapeHtml(o.profiles?.full_name || 'Unknown buyer')}<br><span class="pcard-meta">Seller: ${escapeHtml(sellerNames)} · ${dateLabel}<br>${money(Number(o.total))} · ${o.status} · Payment: ${escapeHtml(paymentLabel)}</span></div>
         ${o.status === 'archived' ? `
-        <button class="mini-btn primary" data-order-restore="${o.id}">Restore</button>
+        ${(o.archived_from_status === 'pending' || o.archived_from_status === 'processing') ? `<button class="mini-btn primary" data-order-restore="${o.id}" data-restore-to="${o.archived_from_status}">Restore to ${o.archived_from_status === 'processing' ? 'Processing' : 'Pending'}</button>` : ''}
         <button class="mini-btn danger" data-order-permanent-delete="${o.id}">Delete</button>
         ` : `
         <select class="status-select" data-status-for="${o.id}">
           ${ADMIN_ORDER_STATUSES.map(s => `<option value="${s}" ${s === o.status ? 'selected' : ''}>${s}</option>`).join('')}
         </select>
         <button class="mini-btn" data-status-save="${o.id}">Save</button>
-        <button class="mini-btn danger" data-order-delete="${o.id}">Delete</button>
+        ${canArchiveOrder(o) ? `<button class="mini-btn danger" data-order-delete="${o.id}">Delete</button>` : ''}
         `}
       </div>`;
 }
@@ -4236,25 +4283,21 @@ async function deleteSellerAccount(){
   if (!ok) return;
 
   const btn = $('#sellerDeleteAccountBtn');
-  if (btn) { btn.disabled = true; btn.textContent = 'Closing…'; }
+  if (btn) { btn.disabled = true; btn.textContent = 'Closing\u2026'; }
+  const resetBtn = () => { if (btn) { btn.disabled = false; btn.textContent = 'Delete seller account'; } };
 
-  const { error: prodErr } = await sb.from('products')
-    .update({ is_active: false }).eq('seller_id', authState.user.id);
-  if (prodErr && !/column/i.test(prodErr.message)) {
-    toast('Could not hide your listings: ' + prodErr.message);
-    if (btn) { btn.disabled = false; btn.textContent = 'Delete seller account'; }
+  // One database transaction: hides every active listing, then sets seller_status to pending.
+  // Only an approved seller can call it. For any other status the database refuses and changes nothing.
+  const { data, error } = await sb.rpc('close_seller_account');
+  if (error) {
+    toast('Could not close seller account: ' + error.message);
+    resetBtn();
     return;
   }
 
-  const { error: statusErr } = await sb.from('profiles')
-    .update({ seller_status: 'pending' }).eq('id', authState.user.id);
-  if (statusErr) {
-    toast('Could not close seller account: ' + statusErr.message);
-    if (btn) { btn.disabled = false; btn.textContent = 'Delete seller account'; }
-    return;
-  }
-
-  toast('Seller account closed — your listings are hidden');
+  const hidden = Number(data && data.listings_hidden) || 0;
+  toast(hidden > 0 ? 'Seller account closed \u2014 your listings are hidden' : 'Seller account closed');
+  resetBtn();
   await renderSeller();
 }
 
@@ -4341,15 +4384,24 @@ async function renderSeller(){
 // columns that DID exist. This now removes only the specific column named
 // in the error, one at a time, keeping every other real column intact.
 async function fetchAdminProducts(){
-  let columns = ['id', 'name', 'seller_id', 'price', 'is_active', 'stock_quantity', 'image_urls'];
-  const optional = ['is_active', 'stock_quantity', 'image_urls'];
-  const defaults = { is_active: true, stock_quantity: null, image_urls: [] };
+  // products has no image_urls column. The photo list is derived below from the description
+  // marker and image_url, exactly as the storefront does, so the details view keeps its photos.
+  let columns = ['id', 'name', 'seller_id', 'price', 'is_active', 'stock_quantity', 'review_status', 'admin_suspended', 'image_url', 'description'];
+  const optional = ['is_active', 'stock_quantity', 'review_status', 'admin_suspended'];
+  const defaults = { is_active: true, stock_quantity: null, review_status: 'approved', admin_suspended: false };
+  const withAdminImages = (p) => {
+    let urls = [];
+    const m = String(p.description || '').match(/\[\[ORHANO_IMAGES:(.*?)\]\]/);
+    if (m) { try { const a = JSON.parse(decodeURIComponent(m[1])); if (Array.isArray(a)) urls = a.filter(Boolean); } catch (_) {} }
+    if (p.image_url && !urls.includes(p.image_url)) urls.unshift(p.image_url);
+    return { ...p, image_urls: urls };
+  };
 
   for (let attempt = 0; attempt < optional.length + 1; attempt++) {
     const { data, error } = await sb.from('products').select(`${columns.join(', ')}, profiles(full_name)`);
     if (!error) {
       const dropped = optional.filter(c => !columns.includes(c));
-      return { data: (data || []).map(p => dropped.length ? { ...defaults, ...p, ...Object.fromEntries(dropped.map(c => [c, defaults[c]])) } : p) };
+      return { data: (data || []).map(p => withAdminImages(dropped.length ? { ...defaults, ...p, ...Object.fromEntries(dropped.map(c => [c, defaults[c]])) } : p)) };
     }
     // Find which of our optional columns the error is actually complaining
     // about (Postgres names it explicitly, e.g. "column products.foo does
@@ -4413,7 +4465,7 @@ async function renderAdmin(){
     // Task 13F-1: added payment_status and order_items(product_id) to this
     // SAME query — payment_status for display, product_id so the seller
     // name(s) can be resolved via adminProductsCache (no extra call).
-    sb.from('orders').select('id, total, status, payment_status, created_at, profiles(full_name), order_items(product_id)').order('created_at', { ascending: false }).limit(20),
+    sb.from('orders').select('id, total, status, payment_status, stock_held, archived_from_status, created_at, profiles(full_name), order_items(product_id)').order('created_at', { ascending: false }).limit(20),
     // Task 13B-1: "Total order value" must reflect ALL orders, not just the
     // 20 most recent fetched above for the "Recent orders" list — kept as a
     // separate lightweight query (no join) so it stays cheap at scale.
@@ -5815,6 +5867,17 @@ document.addEventListener('click', async e => {
     return;
   }
 
+  const productReviewApproveBtn = e.target.closest('[data-admin-product-review-approve]');
+  if (productReviewApproveBtn) {
+    const id = productReviewApproveBtn.dataset.adminProductReviewApprove;
+    const { data, error } = await sb.from('products').update({ review_status: 'approved' }).eq('id', id).select();
+    if (error) { toast('Approve failed: ' + error.message); return; }
+    if (!data || data.length === 0) { toast('Product not approved \u2014 it may no longer be pending review.'); return; }
+    toast('Product approved');
+    renderAdmin();
+    return;
+  }
+
   const productApproveBtn = e.target.closest('[data-admin-product-approve]');
   if (productApproveBtn) {
     const id = productApproveBtn.dataset.adminProductApprove;
@@ -6068,7 +6131,9 @@ document.addEventListener('click', async e => {
   const orderRestoreBtn = e.target.closest('[data-order-restore]');
   if (orderRestoreBtn) {
     const id = orderRestoreBtn.dataset.orderRestore;
-    const { data, error } = await sb.from('orders').update({ status: 'pending' }).eq('id', id).select();
+    const restoreTo = orderRestoreBtn.dataset.restoreTo;
+    if (!restoreTo) { toast('This order has no recorded status to restore to'); return; }
+    const { data, error } = await sb.from('orders').update({ status: restoreTo }).eq('id', id).select();
     if (error) { toast('Restore failed: ' + error.message); return; }
     if (!data || data.length === 0) { toast(`Order #${id} আপডেট হয়নি — সম্ভবত Supabase RLS policy UPDATE ব্লক করছে`); return; }
     toast(`Order #${id} restored`);
@@ -6080,12 +6145,9 @@ document.addEventListener('click', async e => {
   if (orderPermDeleteBtn) {
     const id = orderPermDeleteBtn.dataset.orderPermanentDelete;
     if (!confirm(`Order #${id} স্থায়ীভাবে ডিলেট করতে চান? এটা আর ফিরিয়ে আনা যাবে না।`)) return;
-    const { error: itemsDelErr } = await sb.from('order_items').delete().eq('order_id', id);
-    if (itemsDelErr) { toast('Delete failed: ' + itemsDelErr.message); return; }
-    const { data, error } = await sb.from('orders').delete().eq('id', id).select();
-    if (error) { toast('Delete failed: ' + error.message); return; }
-    if (!data || data.length === 0) { toast(`Order #${id} ডিলেট হয়নি — সম্ভবত Supabase RLS policy DELETE ব্লক করছে`); return; }
-    toast(`Order #${id} permanently deleted`);
+    const { error: rpcErr } = await sb.rpc('admin_permanently_delete_order', { p_order_id: Number(id) });
+    if (rpcErr) { toast('Delete failed: ' + rpcErr.message); return; }
+        toast(`Order #${id} permanently deleted`);
     renderAdmin();
     return;
   }
@@ -6252,6 +6314,7 @@ $('#adminReportStatusFilter')?.addEventListener('change', () => renderAdminRepor
 $('#adminSellerSearch')?.addEventListener('input', () => renderAdminSellers());
 $('#adminProductSearch')?.addEventListener('input', () => renderAdminProducts());
 $('#adminProductSellerFilter')?.addEventListener('change', () => renderAdminProducts());
+$('#adminProductReviewFilter')?.addEventListener('change', () => renderAdminProducts());
 if (toggleArchivedEl) {
   toggleArchivedEl.addEventListener('click', () => {
     state.adminShowArchived = !state.adminShowArchived;
@@ -6566,6 +6629,42 @@ init();
     return data.publicUrl;
   }
 
+  // M3C: buyer photos. Review photos go to the public review-photos bucket and the public URL is stored in
+  // reviews.image_urls. Chat photos go to the private chat-attachments bucket and only the storage path is
+  // stored. Product photos keep using uploadProductImage above, unchanged.
+  const BUYER_PHOTO_MAX_BYTES = 7 * 1024 * 1024;
+  const friendlyPhotoError = msg => { const e = new Error(msg); e.friendly = true; return e; };
+  function validateBuyerPhoto(file){
+    if (!file || !file.type.startsWith('image/')) throw friendlyPhotoError('Please select an image.');
+    if (file.size > BUYER_PHOTO_MAX_BYTES) throw friendlyPhotoError('Each image must be under 7MB.');
+  }
+  function buyerPhotoFileName(file){
+    const ext = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g,'') || 'jpg';
+    return `${Date.now()}-${Math.random().toString(36).slice(2,8)}.${ext}`;
+  }
+  async function uploadReviewPhoto(file, orderItemId){
+    if (!authState.user) throw friendlyPhotoError('Please sign in first.');
+    validateBuyerPhoto(file);
+    const itemId = String(orderItemId || '');
+    if (!/^[0-9]{1,18}$/.test(itemId)) throw friendlyPhotoError('Could not attach this photo to your order. Please refresh and try again.');
+    const path = `${authState.user.id}/${itemId}/${buyerPhotoFileName(file)}`;
+    const { error } = await sb.storage.from('review-photos').upload(path, file, { upsert: false, contentType: file.type });
+    if (error) throw friendlyPhotoError('Photo upload failed. Please try again.');
+    const { data } = sb.storage.from('review-photos').getPublicUrl(path);
+    if (!data?.publicUrl) throw friendlyPhotoError('Photo upload failed. Please try again.');
+    return data.publicUrl;
+  }
+  async function uploadChatPhoto(file, conversationId){
+    if (!authState.user) throw friendlyPhotoError('Please sign in first.');
+    validateBuyerPhoto(file);
+    const convId = String(conversationId || '');
+    if (!/^[0-9]{1,18}$/.test(convId)) throw friendlyPhotoError('This chat is not available.');
+    const path = `${convId}/${authState.user.id}/${buyerPhotoFileName(file)}`;
+    const { error } = await sb.storage.from('chat-attachments').upload(path, file, { upsert: false, contentType: file.type });
+    if (error) throw friendlyPhotoError('Photo upload failed. Please try again.');
+    return path;
+  }
+
   async function saveProductRecord(payload, editing, existingId) {
     let result = editing
       ? await sb.from('products').update(payload).eq('id', existingId).eq('seller_id', authState.user.id).select().single()
@@ -6607,7 +6706,18 @@ init();
     V4.productImageUrls = initialImages;
     V4.productImageFiles = [];
     V4.productImageUrl = initialImages[0] || '';
-    const cats = (typeof CATEGORIES !== 'undefined' ? CATEGORIES : []).map(c =>
+    const originalContent = existing ? {
+      name: existing.name || '',
+      category: existing.category || '',
+      description: String(existing.description || '').replace(/\s*\[\[ORHANO_IMAGES:.*?\]\]\s*/g, ' ').trim(),
+      images: JSON.stringify(initialImages)
+    } : null;
+    const knownCats = (typeof CATEGORIES !== 'undefined' ? CATEGORIES : []);
+    // Keep a product's current category selected even if it is not in the dropdown list,
+    // so saving an unrelated edit does not silently change the category.
+    const legacyCat = existing?.category && !knownCats.some(c => c.id === existing.category)
+      ? `<option value="${esc(existing.category)}" selected>${esc(existing.category)} (current)</option>` : '';
+    const cats = legacyCat + knownCats.map(c =>
       `<option value="${esc(c.id)}" ${existing?.category===c.id?'selected':''}>${esc(c.label)}</option>`).join('');
 
     const el = modal(editing ? 'Edit Product' : 'Add Product', `
@@ -6635,7 +6745,7 @@ init();
           </div>
         </div>
       </div>
-      <div class="v4-field"><label>Description</label><textarea id="v4Desc">${esc(existing?.description||'')}</textarea></div>
+      <div class="v4-field"><label>Description</label><textarea id="v4Desc">${esc(String(existing?.description||'').replace(/\s*\[\[ORHANO_IMAGES:.*?\]\]\s*/g, ' ').trim())}</textarea></div>
       <p class="v4-note">Select multiple photos at once. The first photo becomes the main product image. Tap a photo to preview it larger.</p>
       <p id="v4Error" style="display:none;color:#D63A2E;font-size:0.82rem;background:#FDEDEB;border:1px solid #F3C3BD;border-radius:8px;padding:8px 10px;margin:6px 0;"></p>
       <button class="v4-primary" id="v4SaveProduct">${editing?'Update product':'Publish product'}</button>
@@ -6753,18 +6863,36 @@ init();
           return;
         }
 
+        // products has no image_urls column. The image list is stored in the description marker
+        // (the same encoding the storefront already reads), so image_urls is not sent.
+        const plainDescription = String(description || '').replace(/\s*\[\[ORHANO_IMAGES:.*?\]\]\s*/g, ' ').trim();
+        const imageListForSave = (V4.productImageUrls || []).filter(Boolean);
+        const descriptionWithImages = imageListForSave.length
+          ? (plainDescription ? plainDescription + '\n\n' : '') + '[[ORHANO_IMAGES:' + encodeURIComponent(JSON.stringify(imageListForSave)) + ']]'
+          : (plainDescription || null);
+        // Price/stock/active-only saves send the stored description unchanged, so the
+        // marker is not added to (or re-encoded in) a description that did not change.
+        const keepStoredDescription = !!(existing && originalContent
+          && plainDescription === originalContent.description
+          && JSON.stringify(imageListForSave) === originalContent.images);
+        const descriptionForSave = keepStoredDescription ? (existing.description ?? null) : descriptionWithImages;
         const payload = {
           name, category, price, was_price: was, stock_quantity: stock,
           is_active: isActive,
-          description: description || null,
+          description: descriptionForSave,
           seller_id: authState.user.id,
           image_url: V4.productImageUrls[0] || null,
-          image_urls: V4.productImageUrls,
           emoji: existing?.emoji || '🛍️',
           bg_color: existing?.bg_color || '#FFF1E4',
           color_group: existing?.color_group || 'warm',
           ...(editing ? {} : { rating: existing?.rating ?? 0, sold_count: existing?.sold_count ?? '0' })
         };
+
+        const contentChanged = !originalContent
+          || originalContent.name !== name
+          || originalContent.category !== category
+          || originalContent.description !== (description || '')
+          || originalContent.images !== JSON.stringify((V4.productImageUrls || []).filter(Boolean));
 
         btn.disabled=true; btn.textContent=editing?'Updating…':'Publishing…';
         try {
@@ -6783,7 +6911,7 @@ init();
           await loadProductsFromDB();
           if (typeof renderHomeLists === 'function') renderHomeLists();
           await renderSeller();
-          toast(editing ? 'Product updated successfully' : 'Product published successfully');
+          toast(contentChanged ? 'Your changes are pending admin review.' : (editing ? 'Product updated successfully' : 'Product published successfully'));
         } catch(err) {
           console.error('Product publish exception:', err);
           showError('Publish failed: ' + (err.message || err));
@@ -6914,22 +7042,17 @@ init();
   async function renderSellerV4() {
     if (!authState.user) return;
     try {
-      // NOTE (fix): the old query filtered on 'products.seller_id' without ever
-      // embedding the products table, so Supabase/PostgREST rejected it and the
-      // empty catch{} swallowed the error — the "Open orders" stat was stuck on
-      // "—" forever. Embedding products!inner(seller_id) makes the filter valid,
-      // and we now count distinct orders that are still open instead of summing
-      // every item ever sold.
-      const { data: rows, error } = await sb.from('order_items')
-        .select('order_id, products!inner(seller_id), orders!inner(id,status)')
-        .eq('products.seller_id', authState.user.id);
+      // Open orders come from seller_order_headers (orders containing this seller's
+      // products). Counted as distinct orders still open, not items sold.
+      const { data: rows, error } = await sb.from('seller_order_headers')
+        .select('id, status');
       if (error) throw error;
       if ($('#sellerOrders')) {
         const OPEN_STATUSES = ['pending', 'processing', 'shipped'];
         const openOrderIds = new Set(
           (rows || [])
-            .filter(r => OPEN_STATUSES.includes(r.orders?.status))
-            .map(r => r.order_id)
+            .filter(r => OPEN_STATUSES.includes(r.status))
+            .map(r => r.id)
         );
         $('#sellerOrders').textContent = openOrderIds.size;
       }
@@ -7060,7 +7183,7 @@ init();
   // Expose useful controls for future ChatGPT/Claude edits.
   window.ORHANO_V4 = {
     openCheckout, openSellerProductEditor, openAdminSettings,
-    uploadProductImage, modal, closeModal, renderSellerV4,
+    uploadProductImage, uploadReviewPhoto, uploadChatPhoto, modal, closeModal, renderSellerV4,
     refresh: async()=>{ await loadProductsFromDB(); renderHomeLists(); }
   };
 

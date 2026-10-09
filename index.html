@@ -3377,32 +3377,6 @@ async function renderRealAlerts(){
     });
   }
 
-  // 3) Chat alerts — real unread messages (messages.read_at IS NULL), same
-  // query shape already used for the conversation list's unread badges.
-  // These keep the real read state: they stay "unread" here until the
-  // conversation itself is opened, they are never marked seen by this tab.
-  const { data: unreadMsgs } = await sb.from('messages')
-    .select('id, conversation_id, body, created_at, conversations!inner(buyer_id, seller_id, buyer:profiles!conversations_buyer_id_fkey(full_name), seller:profiles!conversations_seller_id_fkey(full_name))')
-    .is('read_at', null).neq('sender_id', me)
-    .order('created_at', { ascending: false }).limit(15);
-  if (!isCurrent()) return;
-  const alertNames = await fetchCounterpartNames((unreadMsgs || []).map(m => m.conversations).filter(Boolean), me);
-  if (!isCurrent()) return;
-  (unreadMsgs || []).forEach(m => {
-    const conv = m.conversations;
-    const isBuyer = conv?.buyer_id === me;
-    const otherId = isBuyer ? conv?.seller_id : conv?.buyer_id;
-    const otherName = alertNames[otherId]?.full_name || (isBuyer ? 'Seller' : 'Buyer');
-    items.push({
-      icon: '💬',
-      title: `New message from ${otherName}`,
-      body: (m.body || '').slice(0, 80) || 'Sent an attachment',
-      ts: m.created_at, unread: true,
-      gotoAttr: `data-open-chat="${m.conversation_id}"`,
-      seenKey: null,
-    });
-  });
-
   // 4) Review alerts — seller: new review on one of my products. Same
   // products(seller_id) filter pattern as the seller order query above.
   if (isApprovedSeller) {

@@ -1978,13 +1978,27 @@ async function submitSellerReply(reviewId){
 
 /* ---------- real buyer <-> seller chat ---------- */
 
+// Find an existing conversation between the current user and another user in EITHER buyer/seller direction.
+// Same-direction rows are preferred, then reversed-direction rows; within each, the oldest (lowest id) wins.
+async function findConversationForPair(otherId){
+  const me = authState.user.id;
+  const { data, error } = await sb.from('conversations')
+    .select('id, buyer_id, seller_id')
+    .or(`and(buyer_id.eq.${me},seller_id.eq.${otherId}),and(buyer_id.eq.${otherId},seller_id.eq.${me})`)
+    .order('id', { ascending: true });
+  if (error) return { id: null, error };
+  const rows = data || [];
+  const same = rows.find(r => r.buyer_id === me && r.seller_id === otherId);
+  const reversed = rows.find(r => r.buyer_id === otherId && r.seller_id === me);
+  return { id: (same || reversed)?.id ?? null, error: null };
+}
+
 async function openOrCreateConversation(sellerId, productId){
   if (!authState.user) { toast('Sign in to chat with sellers'); goto('account'); return; }
   if (!sellerId) { toast('Chat is not available for this item'); return; }
   if (sellerId === authState.user.id) { toast("You can't message your own shop"); return; }
 
-  const { data: existing, error: findErr } = await sb.from('conversations')
-    .select('id').eq('buyer_id', authState.user.id).eq('seller_id', sellerId).maybeSingle();
+  const { id: existingId, error: findErr } = await findConversationForPair(sellerId);
 
   if (findErr) {
     toast(/relation|does not exist|schema cache/i.test(findErr.message || '')
@@ -1995,7 +2009,7 @@ async function openOrCreateConversation(sellerId, productId){
     return;
   }
 
-  let conversationId = existing?.id;
+  let conversationId = existingId;
   if (!conversationId) {
     const { data: created, error: insErr } = await sb.from('conversations')
       .insert({ buyer_id: authState.user.id, seller_id: sellerId, product_id: productId || null })
@@ -2003,10 +2017,9 @@ async function openOrCreateConversation(sellerId, productId){
     if (insErr) {
       // Someone may have created the same conversation a moment earlier (race) —
       // check once more before giving up.
-      const { data: retry } = await sb.from('conversations')
-        .select('id').eq('buyer_id', authState.user.id).eq('seller_id', sellerId).maybeSingle();
-      if (retry?.id) {
-        conversationId = retry.id;
+      const { id: retryId } = await findConversationForPair(sellerId);
+      if (retryId) {
+        conversationId = retryId;
       } else {
         toast(/relation|does not exist|schema cache/i.test(insErr.message || '')
           ? "Chat isn't set up on this database yet — see the report for the required SQL."
@@ -2059,10 +2072,11 @@ async function renderChatThread(conversationId){
   const otherName = other?.full_name || 'User';
 
   const { data: messages, error: msgListErr } = await sb.from('messages')
-    .select('id, sender_id, body, created_at, read_at')
+    .select('id, sender_id, body, created_at, read_at, attachment_type, attachment_data, edited_at')
     .eq('conversation_id', conversationId)
     .order('created_at', { ascending: true });
 
+  console.info('[chat] thread', conversationId, 'history rows:', messages ? messages.length : 0, msgListErr ? 'error: ' + msgListErr.message : 'ok');
   if (msgListErr) {
     wrap.innerHTML = `<div class="chat-thread-head"><button class="chat-thread-back" data-goto="messages" aria-label="Back">←</button><strong style="font-size:0.9rem;">${escapeHtml(otherName)}</strong></div>
       <p style="padding:30px 16px;text-align:center;color:var(--brick);font-size:0.85rem;">${/permission|policy|rls/i.test(msgListErr.message) ? 'You do not have permission to view these messages.' : 'Could not load messages: ' + escapeHtml(msgListErr.message)}</p>`;
@@ -3450,6 +3464,12 @@ let appHistoryReady = false;
 function showView(view, productId){
   if (view === 'admin') view = 'admin-gate';
   if (view === 'settings' && !authState.user) view = 'account';
+  // Leaving a chat thread (Back button or device Back) returns to the Chat conversation list,
+  // not the unread-only Alerts list (opening a chat marks its messages read, which removes its alert).
+  if (view === 'messages' && state.view === 'chatThread') {
+    state.msgTab = 'chat';
+    $$('.tab[data-mtab]').forEach(t => t.classList.toggle('active', t.dataset.mtab === 'chat'));
+  }
   if (view !== 'product' && pdpScrollHandler) { window.removeEventListener('scroll', pdpScrollHandler); pdpScrollHandler = null; }
   state.view = view;
   $$('.view').forEach(v => v.classList.remove('active'));

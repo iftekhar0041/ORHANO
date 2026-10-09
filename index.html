@@ -2446,6 +2446,15 @@ function hideConversationLocally(conversationId){
   hidden.add(String(conversationId));
   localStorage.setItem('orhano_hidden_conversations', JSON.stringify([...hidden]));
 }
+// Opening a conversation restores it if it was hidden on this device. Removes only that one id,
+// and only writes when the id was actually hidden. Storage failures must never break navigation.
+function unhideConversationLocally(conversationId){
+  try {
+    const hidden = getHiddenConversations();
+    if (!hidden.delete(String(conversationId))) return;
+    localStorage.setItem('orhano_hidden_conversations', JSON.stringify([...hidden]));
+  } catch (e) { /* storage unavailable: leave the hidden list as it is */ }
+}
 let convLongPressTimer = null;
 function wireConversationLongPress(){
   const list = $('#messagesList');
@@ -3464,9 +3473,10 @@ let appHistoryReady = false;
 function showView(view, productId){
   if (view === 'admin') view = 'admin-gate';
   if (view === 'settings' && !authState.user) view = 'account';
-  // Leaving a chat thread (Back button or device Back) returns to the Chat conversation list,
-  // not the unread-only Alerts list (opening a chat marks its messages read, which removes its alert).
-  if (view === 'messages' && state.view === 'chatThread') {
+  // Leaving a chat thread for ANY screen (Back button, device Back, or the bottom bar) resets the
+  // Messages tab to the Chat conversation list. Opening a chat from Alerts marks its messages read,
+  // which removes its alert; a later visit to Messages must not land on that unread-only Alerts list.
+  if (state.view === 'chatThread' && view !== 'chatThread') {
     state.msgTab = 'chat';
     $$('.tab[data-mtab]').forEach(t => t.classList.toggle('active', t.dataset.mtab === 'chat'));
   }
@@ -3498,7 +3508,7 @@ function goto(view, productId){
   if (view === 'settings' && !authState.user) view = 'account';
   if (productId !== undefined) {
     if (view === 'store') state.currentShopId = productId;
-    else if (view === 'chatThread') state.currentConversationId = productId;
+    else if (view === 'chatThread') { state.currentConversationId = productId; unhideConversationLocally(productId); }
     else state.currentProductId = productId;
   }
   if (appHistoryReady) {

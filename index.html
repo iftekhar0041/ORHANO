@@ -3874,8 +3874,13 @@ async function renderAccount(){
     // Only show the "Admin panel" entry to accounts whose profile role is admin.
     // Customers and sellers never see this button (the backend still enforces
     // the same rule independently in checkAdminAccess).
-    const { data: profileRow } = await sb.from('profiles').select('role').eq('id', authState.user.id).single();
-    $('#adminPanelRow').style.display = (profileRow && profileRow.role === 'admin') ? '' : 'none';
+    const { data: profileRow, error: profileErr } = await sb.from('profiles').select('role').eq('id', authState.user.id).single();
+    if (profileErr) {
+      document.getElementById('adminPanelRow').textContent = 'Admin check: ' + profileErr.code + ' — ' + profileErr.message;
+      document.getElementById('adminPanelRow').style.display = '';
+    } else {
+      document.getElementById('adminPanelRow').style.display = (profileRow && profileRow.role === 'admin') ? '' : 'none';
+    }
   } else {
     $('#authGate').style.display = 'flex';
     $('#accountBody').style.display = 'none';

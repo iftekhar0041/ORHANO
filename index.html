@@ -5892,8 +5892,32 @@ async function requestMediaAccess(constraints){
 function permissionFailureMessage(reason){
   if (reason === 'insecure') return "This permission only works when ORHANO is opened over https:// (or localhost) — the browser blocks it otherwise.";
   if (reason === 'unsupported') return "This browser doesn't support this permission.";
+  if (reason === 'default') return "Notifications are still off. Allow them when your browser asks, then try again here.";
   if (reason === 'denied') return "Access was blocked. Turn it on from your browser's site settings for this page, then try again here.";
   return "Access wasn't granted. Please try again.";
+}
+/* Message notifications: the browser's own permission. The browser only shows
+   its prompt on a secure context (https:// or localhost). The switch is ON only
+   when the browser reports 'granted'. */
+function notificationPermissionState(){
+  if (!('Notification' in window)) return 'unsupported';
+  return Notification.permission;
+}
+function requestNotificationAccess(){
+  return new Promise(resolve => {
+    if (!window.isSecureContext) return resolve({ granted:false, reason:'insecure' });
+    if (!('Notification' in window)) return resolve({ granted:false, reason:'unsupported' });
+    if (Notification.permission === 'granted') return resolve({ granted:true });
+    if (Notification.permission === 'denied') return resolve({ granted:false, reason:'denied' });
+    let settled = false;
+    const finish = (value) => { if (!settled) { settled = true; resolve(value); } };
+    const answer = (perm) => finish(perm === 'granted' ? { granted:true }
+      : { granted:false, reason: perm === 'denied' ? 'denied' : 'default' });
+    try {
+      const pending = Notification.requestPermission(answer); // callback form also works on older Safari
+      if (pending && typeof pending.then === 'function') pending.then(answer, () => finish({ granted:false, reason:'error' }));
+    } catch (e) { finish({ granted:false, reason:'error' }); }
+  });
 }
 function setSwitchState(id, on){
   const el = $('#perm-' + id);
@@ -5913,6 +5937,7 @@ function showSystemSettings(){
       ${systemSettingRow('microphone','Allow ORHANO to access microphone')}
       ${systemSettingRow('camera','Allow ORHANO to access camera')}
       ${systemSettingRow('photos','Allow ORHANO to access photo album')}
+      ${systemSettingRow('notifications','Allow ORHANO to send message notifications')}
     </div>
     <p class="account-info-note">Turning one on will ask your browser to confirm access. Browsers don't let a website turn its own permission back off — if you switch one off here, ORHANO simply stops using it; to fully revoke it, use your browser's own site settings.</p>
   `, initSystemSettings, showPrivacyProtection);
@@ -5930,6 +5955,7 @@ async function initSystemSettings(){
   // The web platform has no persistent OS-level "photo album" permission —
   // this switch instead gates ORHANO's own photo-picker buttons (e.g. avatar upload).
   setSwitchState('photos', prefs.photos !== false);
+  setSwitchState('notifications', notificationPermissionState() === 'granted');
 
   $$('[data-permission]').forEach(btn => btn.onclick = async () => {
     const id = btn.dataset.permission;
@@ -5940,6 +5966,7 @@ async function initSystemSettings(){
       if (id === 'location') result = await requestLocationAccess();
       else if (id === 'microphone') result = await requestMediaAccess({ audio: true });
       else if (id === 'camera') result = await requestMediaAccess({ video: true });
+      else if (id === 'notifications') result = await requestNotificationAccess();
       if (!result.granted) { toast(permissionFailureMessage(result.reason)); return; }
       prefs2[id] = true; savePermissionPrefs(prefs2);
       setSwitchState(id, true);

@@ -1271,7 +1271,7 @@ const safeColor = c =>
    Only PUBLIC values belong here: the project URL and the anon key.
    NEVER put the privileged server key or a Turnstile secret in this file. A staging build must be a separate file. */
 const SUPABASE_URL = 'https://nddcdquamdqfjmuoflim.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_FptrXqyKpQHNyhPDwWuTQw_14wCJK3X';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5kZGNkcXVhbWRxZmptdW9mbGltIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE2MTk0MTAsImV4cCI6MjEwNzE5NTQxMH0.bl4Tgb4XNGENaXqtfFzF11RoXt8jI7aiE63nJdqvr5E';
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {
     persistSession: true,
@@ -3875,11 +3875,20 @@ async function renderAccount(){
     // Customers and sellers never see this button (the backend still enforces
     // the same rule independently in checkAdminAccess).
     const { data: profileRow, error: profileErr } = await sb.from('profiles').select('role').eq('id', authState.user.id).single();
-    if (profileErr) {
-      document.getElementById('adminPanelRow').textContent = 'Admin check: ' + profileErr.code + ' — ' + profileErr.message;
-      document.getElementById('adminPanelRow').style.display = '';
-    } else {
-      document.getElementById('adminPanelRow').style.display = (profileRow && profileRow.role === 'admin') ? '' : 'none';
+    $('#adminPanelRow').style.display = (profileRow && profileRow.role === 'admin') ? '' : 'none';
+    // TEMPORARY STAGING DIAGNOSTIC: remove after debugging.
+    {
+      const old = document.getElementById('orhanoDiag'); if (old) old.remove();
+      const d = document.createElement('div');
+      d.id = 'orhanoDiag';
+      d.style.cssText = 'margin:10px 0;padding:8px;border:2px solid #b00;background:#fff6f6;font:12px/1.4 monospace;word-break:break-all;';
+      d.textContent = 'DIAG | authState.user.id=' + authState.user.id +
+        ' | authState.user.email=' + authState.user.email +
+        ' | profile data.role=' + (profileRow ? profileRow.role : 'NONE') +
+        ' | profile error code=' + (profileErr ? (profileErr.code || 'none') : 'none') +
+        ' | profile error message=' + (profileErr ? profileErr.message : 'none') +
+        ' | SUPABASE_URL=' + SUPABASE_URL;
+      $('#accountBody').prepend(d);
     }
   } else {
     $('#authGate').style.display = 'flex';

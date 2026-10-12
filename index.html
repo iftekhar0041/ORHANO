@@ -1465,7 +1465,7 @@ async function loadProductsFromDB(){
   const { data, error } = await sb.from('products').select('*').order('id');
   if (error) {
     console.error('Failed to load products:', error);
-    $('#feedGrid').innerHTML = `<p style="grid-column:1/-1;color:#D63A2E;padding:20px 0;font-size:0.8rem;">Could not load products from the database.<br><br><strong>Error:</strong> ${error.message}</p>`;
+    $('#feedGrid').innerHTML = `<p style="grid-column:1/-1;color:#D63A2E;padding:20px 0;font-size:0.8rem;">Could not load products from the database.<br><br><strong>Error:</strong> ${escapeHtml(error.message)}</p>`;
     return false;
   }
   if (!data || data.length === 0) {
@@ -3333,7 +3333,7 @@ async function renderShops(){
     return;
   }
   const { data, error } = await sb.from('public_profiles').select('id, full_name').in('id', ids);
-  if (error) { $('#shopsList').innerHTML = `<p style="padding:16px;color:var(--brick);font-size:0.85rem;">Could not load shops: ${error.message}</p>`; return; }
+  if (error) { $('#shopsList').innerHTML = `<p style="padding:16px;color:var(--brick);font-size:0.85rem;">Could not load shops: ${escapeHtml(error.message)}</p>`; return; }
   // Render every followed seller id. Sellers that are no longer visible in
   // public_profiles (not approved) still appear as "Shop" so they can be unfollowed.
   const nameById = Object.fromEntries((data || []).map(s => [s.id, s.full_name]));
@@ -3364,7 +3364,7 @@ async function renderOrders(){
   else if (state.orderFilter !== 'all') q = q.eq('status', state.orderFilter);
 
   const { data, error } = await q;
-  if (error) { $('#ordersList').innerHTML = `<p style="padding:16px;color:var(--brick);font-size:0.85rem;">Could not load orders: ${error.message}</p>`; return; }
+  if (error) { $('#ordersList').innerHTML = `<p style="padding:16px;color:var(--brick);font-size:0.85rem;">Could not load orders: ${escapeHtml(error.message)}</p>`; return; }
   if (!data || !data.length) {
     $('#ordersList').innerHTML = `<p style="padding:16px;color:var(--ink-soft);font-size:0.85rem;">Nothing here right now.</p>`;
     return;
@@ -3499,7 +3499,7 @@ async function renderMessages(){
       .limit(20);
     if (!isOrdersCurrent()) return;
     if (error) {
-      $('#messagesList').innerHTML = `<p style="padding:16px;color:var(--brick);font-size:0.85rem;">Could not load orders: ${error.message}</p>`;
+      $('#messagesList').innerHTML = `<p style="padding:16px;color:var(--brick);font-size:0.85rem;">Could not load orders: ${escapeHtml(error.message)}</p>`;
       return;
     }
     if (!data || !data.length) {
@@ -3849,11 +3849,11 @@ async function checkAdminAccess(){
   $('#adminGateMessage').textContent = 'Checking your access…';
   const { data, error } = await sb.from('profiles').select('role').eq('id', authState.user.id).single();
   if (error) {
-    $('#adminGateMessage').innerHTML = `Could not check access.<br><br><strong>Signed in as:</strong> ${authState.user.email}<br><strong>Error:</strong> ${error.message}`;
+    $('#adminGateMessage').innerHTML = `Could not check access.<br><br><strong>Signed in as:</strong> ${escapeHtml(authState.user.email)}<br><strong>Error:</strong> ${escapeHtml(error.message)}`;
     return;
   }
   if (!data || data.role !== 'admin') {
-    $('#adminGateMessage').innerHTML = `This account doesn't have admin access.<br><br><strong>Signed in as:</strong> ${authState.user.email}<br><strong>Role on file:</strong> ${data ? data.role : '(no profile row found)'}`;
+    $('#adminGateMessage').innerHTML = `This account doesn't have admin access.<br><br><strong>Signed in as:</strong> ${escapeHtml(authState.user.email)}<br><strong>Role on file:</strong> ${data ? data.role : '(no profile row found)'}`;
     return;
   }
   state.view = 'admin';
@@ -4370,7 +4370,7 @@ function renderAdminSellerApps(){
     ? adminSellerAppsCache.map(p => {
         const existing = adminProductCountBySellerCache[p.id] || 0;
         const contact = adminUsersCache.find(u => u.id === p.id);
-        const contactLine = contact ? `${contact.email || 'No email'} · ${escapeHtml(contact.phone || 'No mobile')} · ` : '';
+        const contactLine = contact ? `${escapeHtml(contact.email || 'No email')} · ${escapeHtml(contact.phone || 'No mobile')} · ` : '';
         const hint = existing > 0
           ? `⚠️ ${contactLine}${existing} existing listing(s) — likely closed account, not new`
           : `${contactLine}Waiting for review`;
@@ -4396,7 +4396,7 @@ function renderAdminSellerApps(){
 function adminSellerRowHtml(s){
   const count = adminProductCountBySellerCache[s.id] || 0;
   const contact = adminUsersCache.find(u => u.id === s.id);
-  const contactLine = contact ? `${contact.email || 'No email'} · ${escapeHtml(contact.phone || 'No mobile')} · ` : '';
+  const contactLine = contact ? `${escapeHtml(contact.email || 'No email')} · ${escapeHtml(contact.phone || 'No mobile')} · ` : '';
   const joinedLine = contact?.created_at ? `Joined ${new Date(contact.created_at).toLocaleDateString()} · ` : '';
   const stats = adminSellerStatsCache[s.id];
   const orderCount = stats ? stats.orderIds.size : 0;
@@ -6867,7 +6867,7 @@ async function init(){
     if (ok) renderHomeLists();
   } catch (err) {
     console.error('Startup error:', err);
-    $('#feedGrid').innerHTML = `<p style="grid-column:1/-1;color:#D63A2E;padding:20px 0;font-size:0.8rem;">Startup error: ${err.message}</p>`;
+    $('#feedGrid').innerHTML = `<p style="grid-column:1/-1;color:#D63A2E;padding:20px 0;font-size:0.8rem;">Startup error: ${escapeHtml(err.message)}</p>`;
   }
   if (state.view === 'account') renderAccount();
 }

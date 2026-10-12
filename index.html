@@ -3809,16 +3809,30 @@ function setupAppHistory(){
 }
 
 window.addEventListener('popstate', e => {
-  // First Back from a settings sub-screen closes that screen only.
+  const st = e.state;
   const modal = $('#settingsModal');
-  if (modal && modal.classList.contains('show')) {
-    closeSettingsModal(true);
-    return;
+  const modalOpen = !!(modal && modal.classList.contains('show'));
+  const depth = (st && st.orhano && st.type === 'modal') ? (Number(st.depth) || 0) : 0;
+
+  // Settings screens: Back lands on an earlier screen's entry, so show that screen again.
+  if (modalOpen || depth > 0) {
+    if (depth > 0 && depth <= settingsScreens.length) {
+      settingsScreens = settingsScreens.slice(0, depth);
+      const screen = settingsScreens[depth - 1];
+      showSettingsScreenDom(screen);
+      if (screen.afterOpen) screen.afterOpen();
+      return;
+    }
+    // Back reached the page that opened the settings screens (or an entry that cannot be rebuilt).
+    hideSettingsModal();
   }
 
-  const st = e.state;
   if (st && st.orhano && st.type === 'view') {
     showView(st.view || 'home', st.productId);
+    return;
+  }
+  if (st && st.orhano && st.type === 'modal') {
+    showView(st.view || state.view || 'home');
     return;
   }
 
@@ -5084,42 +5098,46 @@ function setLanguage(lang){
   });
   $('#settingsLanguageSub').textContent = lang === 'bn' ? 'বাংলা' : 'English';
 }
-let currentModalBackTo = null;
-function openSettingsModal(title, html, afterOpen, backTo){
-  currentModalBackTo = backTo || null;
-  $('#settingsModalTitle').textContent=title;
-  $('#settingsModalBody').innerHTML=html;
+/* Settings screens (Account Information, Privacy protection, System Settings, ...) share one modal.
+   Each screen is kept in settingsScreens and has exactly one browser-history entry whose depth
+   is its position in the stack. Back moves to the entry it lands on and shows that screen again,
+   without adding a history entry. The first screen's Back returns to the settings page that
+   opened it; only after that does browser Back leave the settings. */
+let settingsScreens = [];
+function showSettingsScreenDom(screen){
+  $('#settingsModalTitle').textContent = screen.title;
+  $('#settingsModalBody').innerHTML = screen.html;
   $('#settingsModal').classList.add('show');
   $('#settingsModal').setAttribute('aria-hidden','false');
-  // Create a browser history step for every settings sub-screen.
-  if (appHistoryReady) {
-    history.pushState({ orhano:true, type:'modal', view:state.view, title }, '', window.location.href);
+}
+function hideSettingsModal(){
+  const modal = $('#settingsModal');
+  if (modal) {
+    modal.classList.remove('show');
+    modal.setAttribute('aria-hidden','true');
   }
-  if(afterOpen) afterOpen();
+  settingsScreens = [];
+}
+function openSettingsModal(title, html, afterOpen, backTo){
+  // backTo is accepted for existing callers; navigation now comes from the history entries.
+  const screen = { title, html, afterOpen };
+  settingsScreens.push(screen);
+  showSettingsScreenDom(screen);
+  if (appHistoryReady) {
+    history.pushState({ orhano:true, type:'modal', depth: settingsScreens.length, view: state.view, title }, '', window.location.href);
+  }
+  if (afterOpen) afterOpen();
 }
 function closeSettingsModal(fromPopState=false){
-  const modal=$('#settingsModal');
+  const modal = $('#settingsModal');
   if (!modal) return;
-  // Route every close trigger (the × button, tapping the overlay, and the
-  // device/browser Back) through the same path: consume this screen's
-  // history entry first, and let the resulting popstate event below decide
-  // whether that means "go to the parent settings screen" or "exit" — this
-  // keeps the visible screen and the browser history in sync no matter
-  // which of the three triggered it.
-  if (!fromPopState) {
-    if (appHistoryReady && history.state?.orhano && history.state.type==='modal') {
-      history.back();
-      return;
-    }
-  }
-  if (currentModalBackTo) {
-    const backTo = currentModalBackTo;
-    backTo();
+  // A screen's own close (× button, tapping the overlay) goes through Back, so the previous screen
+  // (or the settings page) is shown by the same path as the device Back button.
+  if (!fromPopState && appHistoryReady && settingsScreens.length > 0 && history.state?.orhano && history.state.type === 'modal') {
+    history.back();
     return;
   }
-  modal.classList.remove('show');
-  modal.setAttribute('aria-hidden','true');
-  currentModalBackTo = null;
+  hideSettingsModal();
 }
 function escapeHtml(v){
   return String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));

@@ -867,7 +867,7 @@ html,body{width:100%;max-width:100%;overflow-x:hidden;-webkit-text-size-adjust:1
       </div>
       <div class="account-list">
         <button class="account-row" data-goto="seller">Sell on ORHANO</button>
-        <button class="account-row" data-goto="admin-gate" id="adminPanelRow" style="display:none;">Admin panel (restricted)</button>
+        <button class="account-row" data-goto="admin-gate" id="adminPanelRow" style="display:none;">Admin Panel</button>
       </div>
     </div>
   </main>
@@ -5873,7 +5873,10 @@ function getPermissionPrefs(){
   try { return JSON.parse(localStorage.getItem('orhano_permissions') || '{}'); }
   catch(e){ return {}; }
 }
-function savePermissionPrefs(p){ localStorage.setItem('orhano_permissions', JSON.stringify(p)); }
+function savePermissionPrefs(p){
+  try { localStorage.setItem('orhano_permissions', JSON.stringify(p)); }
+  catch(e){ /* storage unavailable: the switch still updates for this visit */ }
+}
 
 /* Reads the browser's own permission state where it exposes one (Chrome-family
    browsers support this for geolocation/microphone/camera; others may not —
@@ -5910,8 +5913,42 @@ async function requestMediaAccess(constraints){
 function permissionFailureMessage(reason){
   if (reason === 'insecure') return "This permission only works when ORHANO is opened over https:// (or localhost) — the browser blocks it otherwise.";
   if (reason === 'unsupported') return "This browser doesn't support this permission.";
+  if (reason === 'default') return "Notifications are still off. Allow them when your browser asks, then try again here.";
   if (reason === 'denied') return "Access was blocked. Turn it on from your browser's site settings for this page, then try again here.";
   return "Access wasn't granted. Please try again.";
+}
+/* Message notifications: the browser's own permission. The browser only shows
+   its prompt on a secure context (https:// or localhost). The switch is ON only
+   when the browser reports 'granted'. */
+function notificationPermissionState(){
+  if (!('Notification' in window)) return 'unsupported';
+  return Notification.permission;
+}
+function requestNotificationAccess(){
+  return new Promise(resolve => {
+    if (!window.isSecureContext) return resolve({ granted:false, reason:'insecure' });
+    if (!('Notification' in window)) return resolve({ granted:false, reason:'unsupported' });
+    if (Notification.permission === 'granted') return resolve({ granted:true });
+    if (Notification.permission === 'denied') return resolve({ granted:false, reason:'denied' });
+    let settled = false;
+    const finish = (value) => { if (!settled) { settled = true; resolve(value); } };
+    const answer = (perm) => finish(perm === 'granted' ? { granted:true }
+      : { granted:false, reason: perm === 'denied' ? 'denied' : 'default' });
+    try {
+      const pending = Notification.requestPermission(answer); // callback form also works on older Safari
+      if (pending && typeof pending.then === 'function') pending.then(answer, () => finish({ granted:false, reason:'error' }));
+    } catch (e) { finish({ granted:false, reason:'error' }); }
+  });
+}
+/* ORHANO's saved toggle state is shown exactly as saved. The browser permission never overwrites it:
+   - saved ON (true) or saved OFF (false): shown as saved, whatever the browser reports
+     ('granted', 'denied', 'prompt', 'default', 'unsupported', or null).
+   - no saved value (first load): ON only when the browser reports 'granted'; otherwise OFF.
+   The browser permission is only read here; it is never changed or revoked. */
+function resolveSystemSettingOn(saved, browser){
+  if (saved === false) return false;
+  if (saved === true) return true;
+  return browser === 'granted';
 }
 function setSwitchState(id, on){
   const el = $('#perm-' + id);
@@ -5930,96 +5967,46 @@ function showSystemSettings(){
       ${systemSettingRow('location','Allow ORHANO to access location information')}
       ${systemSettingRow('microphone','Allow ORHANO to access microphone')}
       ${systemSettingRow('camera','Allow ORHANO to access camera')}
-      ${systemSettingRow('notifications','Allow ORHANO to send message notifications')}
       ${systemSettingRow('photos','Allow ORHANO to access photo album')}
+      ${systemSettingRow('notifications','Allow ORHANO to send message notifications')}
     </div>
     <p class="account-info-note">Turning one on will ask your browser to confirm access. Browsers don't let a website turn its own permission back off — if you switch one off here, ORHANO simply stops using it; to fully revoke it, use your browser's own site settings.</p>
   `, initSystemSettings, showPrivacyProtection);
 }
-let systemSettingsInitSeq = 0;
-
 async function initSystemSettings(){
-  const seq = ++systemSettingsInitSeq;
   const prefs = getPermissionPrefs();
-  const hasSaved = key => Object.prototype.hasOwnProperty.call(prefs, key);
-  const [geo, mic, cam, notif] = await Promise.all([
+  const [geo, mic, cam] = await Promise.all([
     queryBrowserPermission('geolocation'),
     queryBrowserPermission('microphone'),
     queryBrowserPermission('camera'),
-    queryBrowserPermission('notifications'),
   ]);
-
-  // ORHANO's own saved switch is the source of truth once the user has
-  // explicitly chosen ON/OFF. Browser permission is only a prerequisite for
-  // ON. This prevents a browser-granted permission from forcing our switch
-  // back to ON after the user turned it OFF.
-  const resolveRealPermission = (key, browserState) => {
-    if (hasSaved(key)) {
-      const wanted = prefs[key] === true;
-      const actuallyGranted = browserState === null || browserState === 'granted';
-      const on = wanted && actuallyGranted;
-      if (wanted && !actuallyGranted) {
-        const repaired = { ...getPermissionPrefs(), [key]: false };
-        savePermissionPrefs(repaired);
-      }
-      return on;
-    }
-    const on = browserState === 'granted';
-    const initial = { ...getPermissionPrefs(), [key]: on };
-    savePermissionPrefs(initial);
-    return on;
-  };
-
-  const states = {
-    location: resolveRealPermission('location', geo),
-    microphone: resolveRealPermission('microphone', mic),
-    camera: resolveRealPermission('camera', cam),
-    notifications: resolveRealPermission('notifications', notif),
-    // The web platform has no persistent OS-level "photo album" permission.
-    // This switch gates ORHANO's own photo-picker buttons.
-    photos: hasSaved('photos') ? prefs.photos === true : true,
-  };
-
-  // Do not let a stale async initialization repaint a newer settings screen.
-  if (seq !== systemSettingsInitSeq) return;
-  Object.entries(states).forEach(([id, on]) => setSwitchState(id, on));
+  // One rule for every System Setting (see resolveSystemSettingOn): a saved ON/OFF choice is shown as
+  // saved. The browser permission only decides the switch when nothing has been saved yet.
+  setSwitchState('location', resolveSystemSettingOn(prefs.location, geo));
+  setSwitchState('microphone', resolveSystemSettingOn(prefs.microphone, mic));
+  setSwitchState('camera', resolveSystemSettingOn(prefs.camera, cam));
+  // The web platform has no persistent OS-level "photo album" permission —
+  // this switch instead gates ORHANO's own photo-picker buttons (e.g. avatar upload).
+  // Photo album has no browser permission: it is ORHANO's own gate, so it is treated as granted (default ON).
+  setSwitchState('photos', resolveSystemSettingOn(prefs.photos, 'granted'));
+  setSwitchState('notifications', resolveSystemSettingOn(prefs.notifications, notificationPermissionState()));
 
   $$('[data-permission]').forEach(btn => btn.onclick = async () => {
     const id = btn.dataset.permission;
     const turningOn = !btn.classList.contains('on');
     const prefs2 = getPermissionPrefs();
-
     if (turningOn) {
       let result = { granted:true };
       if (id === 'location') result = await requestLocationAccess();
       else if (id === 'microphone') result = await requestMediaAccess({ audio: true });
       else if (id === 'camera') result = await requestMediaAccess({ video: true });
-      else if (id === 'notifications') {
-        if (!('Notification' in window)) result = { granted:false, reason:'unsupported' };
-        else if (!window.isSecureContext) result = { granted:false, reason:'insecure' };
-        else {
-          try {
-            const permission = await Notification.requestPermission();
-            result = { granted: permission === 'granted', reason: permission === 'denied' ? 'denied' : 'error' };
-          } catch(e) { result = { granted:false, reason:'error' }; }
-        }
-      }
-      if (!result.granted) {
-        prefs2[id] = false;
-        savePermissionPrefs(prefs2);
-        setSwitchState(id, false);
-        toast(permissionFailureMessage(result.reason));
-        return;
-      }
-      prefs2[id] = true;
-      savePermissionPrefs(prefs2);
+      else if (id === 'notifications') result = await requestNotificationAccess();
+      if (!result.granted) { toast(permissionFailureMessage(result.reason)); return; }
+      prefs2[id] = true; savePermissionPrefs(prefs2);
       setSwitchState(id, true);
       toast('Access allowed');
     } else {
-      // OFF is an ORHANO preference. The browser/OS permission may remain
-      // granted, but reopening System Settings must still show OFF.
-      prefs2[id] = false;
-      savePermissionPrefs(prefs2);
+      prefs2[id] = false; savePermissionPrefs(prefs2);
       setSwitchState(id, false);
       toast(id === 'photos' ? 'Photo album access turned off for ORHANO' : 'ORHANO will stop using this permission');
     }

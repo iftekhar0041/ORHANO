@@ -5949,13 +5949,16 @@ async function initSystemSettings(){
     queryBrowserPermission('microphone'),
     queryBrowserPermission('camera'),
   ]);
-  setSwitchState('location', geo === 'granted' || (geo === null && !!prefs.location));
-  setSwitchState('microphone', mic === 'granted' || (mic === null && !!prefs.microphone));
-  setSwitchState('camera', cam === 'granted' || (cam === null && !!prefs.camera));
+  // ON only when the browser reports 'granted' AND the user has not switched it OFF in ORHANO.
+  // A website cannot revoke a browser permission, so the user's OFF choice is remembered here.
+  // If the browser cannot report the state at all, the switch stays OFF.
+  setSwitchState('location', geo === 'granted' && prefs.location !== false);
+  setSwitchState('microphone', mic === 'granted' && prefs.microphone !== false);
+  setSwitchState('camera', cam === 'granted' && prefs.camera !== false);
   // The web platform has no persistent OS-level "photo album" permission —
   // this switch instead gates ORHANO's own photo-picker buttons (e.g. avatar upload).
   setSwitchState('photos', prefs.photos !== false);
-  setSwitchState('notifications', notificationPermissionState() === 'granted');
+  setSwitchState('notifications', notificationPermissionState() === 'granted' && prefs.notifications !== false);
 
   $$('[data-permission]').forEach(btn => btn.onclick = async () => {
     const id = btn.dataset.permission;

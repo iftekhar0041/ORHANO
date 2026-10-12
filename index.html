@@ -969,25 +969,6 @@ html,body{width:100%;max-width:100%;overflow-x:hidden;-webkit-text-size-adjust:1
       #sa-email[readonly] { background:#F5F1EC; color:var(--ink-soft); border-style:dashed; cursor:not-allowed; }
       /* Submit button: visibly disabled until backend setup. The disabled attribute itself is unchanged. */
       #sellApplySubmit:disabled { background:#EFE9E2; color:var(--ink-soft); border:1px solid var(--line); cursor:not-allowed; box-shadow:none; }
-      /* Seller application: ID document card */
-      .sa-id-card{border:1px solid var(--line);border-radius:var(--radius-sm);padding:12px;margin:6px 0 14px;background:var(--card);}
-      .sa-id-head{display:flex;align-items:center;gap:8px;font-size:.8rem;font-weight:800;letter-spacing:.04em;color:var(--ink);margin-bottom:10px;}
-      .sa-info-icon{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border:1.5px solid #FF6B00;border-radius:50%;color:#FF6B00;font-size:.7rem;font-weight:800;font-style:normal;}
-      .sa-id-row{display:flex;align-items:center;justify-content:space-between;gap:10px;border:1px solid #dddfe4;border-radius:10px;padding:11px 12px;margin-bottom:12px;}
-      .sa-id-row label{font-size:.85rem;font-weight:600;color:var(--ink);}
-      .sa-id-value{display:inline-flex;align-items:center;gap:4px;min-width:0;}
-      .sa-id-value select{appearance:none;-webkit-appearance:none;border:0;background:transparent;font:inherit;font-size:.85rem;color:var(--ink);text-align:right;padding:0;outline:none;max-width:70vw;}
-      .sa-chevron{color:var(--ink-soft);font-size:1.25rem;line-height:1;}
-      .sa-doc-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:4px 0 6px;}
-      .sa-doc-col{display:flex;flex-direction:column;gap:6px;min-width:0;}
-      .sa-doc-box{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-height:124px;border:2px dashed #FF6B00;border-radius:var(--radius-sm);background:#FFF8F2;color:#FF6B00;cursor:pointer;overflow:hidden;}
-      .sa-doc-plus{font-size:2.4rem;line-height:1;font-weight:300;}
-      .sa-doc-upload{font-size:.85rem;font-weight:700;}
-      .sa-doc-preview{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;}
-      .sa-doc-box.has-preview .sa-doc-plus,.sa-doc-box.has-preview .sa-doc-upload{display:none;}
-      .sa-file-input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;font-size:0;}
-      .sa-doc-caption{font-size:.8rem;font-weight:700;color:var(--ink);text-align:center;}
-      .sa-doc-error{color:var(--brick);font-size:.8rem;margin:6px 0 4px;}
     </style>
     <div id="sellerApplyGate" style="display:none;">
       <div class="login-wrap">
@@ -1002,33 +983,11 @@ html,body{width:100%;max-width:100%;overflow-x:hidden;-webkit-text-size-adjust:1
             <div class="settings-field"><label for="sa-address">Residential address <span style="color:var(--brick);">*</span></label><textarea id="sa-address" rows="3" maxlength="400" placeholder="House no., road, area, thana/upazila, district"></textarea></div>
 
             <h3 style="font-size:0.95rem;margin:14px 0 6px;">Identity</h3>
-            <div class="sa-id-card">
-              <div class="sa-id-head"><span class="sa-info-icon" aria-hidden="true">i</span><span>ID DOCUMENT</span></div>
-              <div class="sa-id-row"><label for="sa-id-type">ID Type <span style="color:var(--brick);">*</span></label><span class="sa-id-value"><select id="sa-id-type"><option value="">Select</option><option value="national_id">National ID card (NID)</option><option value="passport">Passport</option></select><span class="sa-chevron" aria-hidden="true">›</span></span></div>
+            <div class="settings-field"><label for="sa-id-type">ID type <span style="color:var(--brick);">*</span></label><select id="sa-id-type"><option value="">Select</option><option value="national_id">National ID card (NID)</option><option value="passport">Passport</option></select></div>
             <div class="settings-field"><label for="sa-id-number">ID number <span style="color:var(--brick);">*</span></label><input id="sa-id-number" type="text" autocomplete="off" spellcheck="false" maxlength="30" placeholder="As printed on your NID or passport"></div>
-              <div class="sa-doc-grid">
-                <div class="sa-doc-col">
-                  <label class="sa-doc-box" id="sa-doc-front-box" for="sa-doc-front">
-                    <span class="sa-doc-plus" aria-hidden="true">+</span>
-                    <span class="sa-doc-upload">Upload</span>
-                    <img class="sa-doc-preview" id="sa-doc-front-preview" alt="Front of ID preview" hidden>
-                    <input id="sa-doc-front" class="sa-file-input" type="file" accept="image/jpeg,image/png">
-                  </label>
-                  <span class="sa-doc-caption">Front Side <span style="color:var(--brick);">*</span></span>
-                </div>
-                <div class="sa-doc-col">
-                  <label class="sa-doc-box" id="sa-doc-back-box" for="sa-doc-back">
-                    <span class="sa-doc-plus" aria-hidden="true">+</span>
-                    <span class="sa-doc-upload">Upload</span>
-                    <img class="sa-doc-preview" id="sa-doc-back-preview" alt="Back of ID preview" hidden>
-                    <input id="sa-doc-back" class="sa-file-input" type="file" accept="image/jpeg,image/png">
-                  </label>
-                  <span class="sa-doc-caption">Back Side</span>
-                </div>
-              </div>
-              <p class="sa-doc-error" id="sa-doc-error" role="alert" hidden></p>
-              <small class="muted">JPEG or PNG only. PDF and HEIC are not accepted. Photos are checked here only; they are not uploaded until admin verification is set up.</small>
-            </div>
+            <div class="settings-field"><label for="sa-id-expiry">ID expiry date (if shown on your ID)</label><input id="sa-id-expiry" type="date"></div>
+            <div class="settings-field"><label for="sa-doc-front">Front of ID document <span style="color:var(--brick);">*</span></label><input id="sa-doc-front" type="file" accept="image/jpeg,image/png" disabled><small class="muted">JPEG or PNG only. PDF and HEIC are not accepted.</small><small class="muted" style="display:block;">Document upload will be available after admin verification setup.</small></div>
+            <div class="settings-field"><label for="sa-doc-back">Back of ID document</label><input id="sa-doc-back" type="file" accept="image/jpeg,image/png" disabled><small class="muted">JPEG or PNG only.</small></div>
 
             <h3 style="font-size:0.95rem;margin:14px 0 6px;">Shop</h3>
             <p class="muted" style="margin:0 0 8px;">Seller type: Individual seller</p>
@@ -3931,6 +3890,20 @@ async function renderAccount(){
     // the same rule independently in checkAdminAccess).
     const { data: profileRow, error: profileErr } = await sb.from('profiles').select('role').eq('id', authState.user.id).single();
     $('#adminPanelRow').style.display = (profileRow && profileRow.role === 'admin') ? '' : 'none';
+    // TEMPORARY STAGING DIAGNOSTIC: remove after debugging.
+    {
+      const old = document.getElementById('orhanoDiag'); if (old) old.remove();
+      const d = document.createElement('div');
+      d.id = 'orhanoDiag';
+      d.style.cssText = 'margin:10px 0;padding:8px;border:2px solid #b00;background:#fff6f6;font:12px/1.4 monospace;word-break:break-all;';
+      d.textContent = 'DIAG | authState.user.id=' + authState.user.id +
+        ' | authState.user.email=' + authState.user.email +
+        ' | profile data.role=' + (profileRow ? profileRow.role : 'NONE') +
+        ' | profile error code=' + (profileErr ? (profileErr.code || 'none') : 'none') +
+        ' | profile error message=' + (profileErr ? profileErr.message : 'none') +
+        ' | SUPABASE_URL=' + SUPABASE_URL;
+      $('#accountBody').prepend(d);
+    }
   } else {
     $('#authGate').style.display = 'flex';
     $('#accountBody').style.display = 'none';
@@ -6751,35 +6724,6 @@ document.getElementById('settingsCurrencySelect')?.addEventListener('change', e 
 });
 
 $('#sellApplyForm').addEventListener('submit', e => e.preventDefault());
-
-/* ID document pickers: tap a box to choose a JPEG or PNG and show it inside the box. Nothing is uploaded here. */
-(function initIdDocumentPickers(){
-  const EXT = /\.(jpe?g|png)$/i;
-  const TYPES = ['image/jpeg', 'image/png'];
-  const urls = {};
-  const isAllowed = (file) => file.type ? TYPES.includes(file.type) : EXT.test(file.name || '');
-  const setError = (msg) => { const el = $('#sa-doc-error'); if (el) { el.textContent = msg || ''; el.hidden = !msg; } };
-  ['sa-doc-front', 'sa-doc-back'].forEach(id => {
-    const input = $('#' + id), box = $('#' + id + '-box'), img = $('#' + id + '-preview');
-    if (!input || !box || !img) return;
-    const label = id === 'sa-doc-front' ? 'front' : 'back';
-    const clear = () => { if (urls[id]) { URL.revokeObjectURL(urls[id]); urls[id] = null; } img.removeAttribute('src'); img.hidden = true; box.classList.remove('has-preview'); };
-    input.addEventListener('change', () => {
-      const file = input.files && input.files[0];
-      if (!file) { clear(); setError(''); return; }
-      if (!isAllowed(file)) {
-        input.value = '';
-        clear();
-        setError('Only JPEG or PNG images can be used for the ' + label + ' of your ID.');
-        return;
-      }
-      setError('');
-      if (urls[id]) URL.revokeObjectURL(urls[id]);
-      urls[id] = URL.createObjectURL(file);
-      img.src = urls[id]; img.hidden = false; box.classList.add('has-preview');
-    });
-  });
-})();
 /* NOTE (fix): removed the old prompt()-based "add product" handler that used
    to be bound here. Event listeners on the SAME element fire in the order
    they were registered, regardless of capture/bubble phase — so this old

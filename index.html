@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-<title>ORHANO — Everyday marketplace</title>
+<title>ORHANO Seller Centre</title>
 <style>
 :root{
   --paper:#FFF7F0;
@@ -588,6 +588,44 @@ button{font-family:inherit;cursor:pointer;}
 .auth-help-row{display:flex;justify-content:center;align-items:center;gap:8px;margin-top:1px;flex-wrap:wrap;}
 .auth-link{border:0;background:transparent;color:var(--teal-dark);font:700 .78rem/1.2 'Manrope',system-ui,sans-serif;padding:5px 2px;}
 .auth-help-divider{color:#c8b3a3;font-size:.7rem;}
+/* ===== Auth screen (signed-out account view): Daraz-style layout, ORHANO colours. UI only. ===== */
+body.auth-gate-open .topbar, body.auth-gate-open .bottomnav{display:none !important;}
+body.auth-gate-open .app{padding-bottom:0 !important;}
+body.auth-gate-open .view.active{padding:0 !important;}
+#authGate.auth-daraz{display:flex; flex-direction:column; justify-content:flex-start; align-items:stretch; text-align:center; gap:0; padding:0; min-height:100vh; min-height:100dvh; width:100%; box-sizing:border-box; background:linear-gradient(180deg,#FFF0E3 0%,#FFF7F0 40%,#FFFFFF 100%);}
+#authGate .auth-top{height:56px; display:flex; align-items:center; padding:0 6px; box-sizing:border-box; border-bottom:1px solid rgba(36,28,21,.08);}
+#authGate .auth-back{width:44px; height:44px; border:0; background:transparent; color:var(--ink); display:flex; align-items:center; justify-content:center; padding:0; cursor:pointer;}
+#authGate .auth-hero{display:flex; flex-direction:column; align-items:center; margin-top:76px; padding:0 16px;}
+#authGate .auth-logo{width:184px; height:auto; display:block;}
+#authGate .auth-tagline{margin:36px 0 0; font:500 17px/1.35 'Manrope',system-ui,sans-serif; color:var(--ink);}
+#authGate #authTitle, #authGate #authSubtitle{display:none;}
+#authGate .auth-social-login{display:flex; flex-direction:column; gap:14px; margin:34px 16px 0;}
+#authGate .auth-social-btn{position:relative; height:46px; border:0; border-radius:8px; background:#fff; color:var(--ink); font:500 16px/1 'Manrope',system-ui,sans-serif; display:flex; align-items:center; justify-content:center; padding:0 44px; box-shadow:0 1px 2px rgba(36,28,21,.06); cursor:pointer;}
+#authGate .auth-social-btn svg{position:absolute; left:14px; top:50%; transform:translateY(-50%); width:22px; height:22px;}
+#authGate .auth-tabs{display:flex; align-items:center; justify-content:center; margin:22px 16px 0;}
+#authGate .auth-tab{display:flex; align-items:center; gap:6px; border:0; background:transparent; padding:6px 10px; white-space:nowrap; font:600 15px/1 'Manrope',system-ui,sans-serif; color:var(--teal-dark); cursor:pointer;}
+#authGate .auth-tab.is-muted{color:var(--ink-soft); font-weight:600;}
+#authGate .auth-tab svg{width:18px; height:18px; flex:0 0 auto;}
+#authGate .auth-tabs-divider{width:1px; height:18px; background:var(--line);}
+#authGate .login-card{width:100%; max-width:none; background:transparent; border:0; border-radius:0; box-shadow:none; padding:0 16px; margin:24px 0 0; gap:12px; text-align:left;}
+#authGate .login-card input{height:50px; box-sizing:border-box; background:#fff; border:1px solid rgba(36,28,21,.08); border-radius:8px; padding:0 14px; font:500 16px 'Manrope',system-ui,sans-serif; color:var(--ink); outline:none;}
+#authGate .login-card input::placeholder{color:#A09488;}
+#authGate .login-card input:focus{border-color:var(--teal); box-shadow:0 0 0 3px rgba(255,107,0,.12);}
+#authGate .login-error{text-align:center; font-size:14px; min-height:1.2em;}
+#authGate .login-card .btn-primary{height:48px; border:0; border-radius:8px; background:var(--teal); color:#fff; font:700 17px/1 'Manrope',system-ui,sans-serif; box-shadow:0 4px 12px rgba(255,107,0,.22); cursor:pointer;}
+#authGate .auth-help-row{gap:10px; margin-top:0;}
+#authGate .auth-link{font:700 15px/1.2 'Manrope',system-ui,sans-serif; color:var(--teal-dark);}
+#authGate .auth-help-divider{color:#c8b3a3; font-size:14px;}
+#authGate .auth-social-signup{display:none; justify-content:center; gap:56px; margin:30px 16px 0;}
+#authGate .auth-social-circle{width:44px; height:44px; border-radius:50%; border:1px solid rgba(36,28,21,.08); background:#fff; display:flex; align-items:center; justify-content:center; padding:0; cursor:pointer;}
+#authGate .auth-social-circle svg{width:24px; height:24px;}
+#authGate .auth-or{display:none; align-items:center; gap:12px; margin:26px 16px 0; color:#8F8478; font:500 15px/1 'Manrope',system-ui,sans-serif;}
+#authGate .auth-or::before, #authGate .auth-or::after{content:''; flex:1; height:1px; background:#DCD3CC;}
+#authGate.is-signup .auth-social-login, #authGate.is-signup .auth-tabs{display:none;}
+#authGate.is-signup .auth-social-signup, #authGate.is-signup .auth-or{display:flex;}
+#authGate #authToggleBtn{margin-top:auto; width:100%; border:0; border-radius:0; background:transparent; display:flex; flex-direction:column; align-items:center; gap:6px; padding:34px 16px 30px; cursor:pointer; font:inherit;}
+#authGate .auth-prompt{font:500 16px/1.2 'Manrope',system-ui,sans-serif; color:var(--ink-soft);}
+#authGate .auth-cta{font:800 17px/1.2 'Manrope',system-ui,sans-serif; color:var(--teal-dark);}
 html,body{width:100%;max-width:100%;overflow-x:hidden;-webkit-text-size-adjust:100%;text-size-adjust:100%;}
 .app{min-width:0;overflow-x:hidden;}
 @media(max-width:639px){.login-card{width:min(100%,360px);padding:20px 16px}.login-card input{font-size:16px}.app{padding-bottom:calc(74px + env(safe-area-inset-bottom))}.topbar{padding-top:calc(10px + env(safe-area-inset-top))}.hero{margin-left:12px;margin-right:12px}.section{padding-left:12px;padding-right:12px}.categories{padding-left:12px;padding-right:12px}.cart-list,.account-list,.messages-list,.account-grid{padding-left:12px;padding-right:12px}.page-title,.account-head,.search-status{padding-left:12px;padding-right:12px}.cart-summary{margin-left:12px;margin-right:12px}}
@@ -814,23 +852,44 @@ html,body{width:100%;max-width:100%;overflow-x:hidden;-webkit-text-size-adjust:1
   <main id="view-account" class="view">
 
     <!-- Shown when nobody is signed in -->
-    <div id="authGate" class="login-wrap" style="display:none;">
-      <div class="login-card">
-        <h2 style="font-size:1.1rem;" id="authTitle">Sign in</h2>
-        <p class="muted" style="margin:0 0 4px;" id="authSubtitle">Sign in to see your orders and cart across visits.</p>
-        <input id="authName" type="text" placeholder="Full name" autocomplete="off" style="display:none;">
-        <input id="authEmail" type="email" placeholder="Email" autocomplete="off">
-        <input id="authPass" type="password" placeholder="Password (min 6 characters)" autocomplete="off">
-        <div class="login-error" id="authError"></div>
-        <button class="btn-primary" id="authSubmitBtn">Sign in</button>
-        <div class="auth-help-row" id="authHelpRow">
-          <button type="button" class="auth-link" id="forgotPasswordBtn">Forgot password?</button>
-          <span class="auth-help-divider">•</span>
-          <button type="button" class="auth-link" id="forgotEmailBtn">Forgot email?</button>
+    <div id="authGate" class="login-wrap auth-daraz" style="display:none;">
+        <div class="auth-top">
+          <button type="button" class="auth-back" id="authBackBtn" aria-label="Back"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></button>
         </div>
-        <button class="mini-btn" id="authToggleBtn">New here? Create an account</button>
+        <div class="auth-hero">
+          <img id="authBrandLogo" class="auth-logo" alt="ORHANO">
+          <p class="auth-tagline">Discover the endless possibilities</p>
+        </div>
+        <div class="auth-social-login">
+          <button type="button" class="auth-social-btn" data-auth-soon="Google sign-in is coming soon."><svg viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg><span>Log in with Google</span></button>
+          <button type="button" class="auth-social-btn" data-auth-soon="Facebook sign-in is coming soon."><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="12" fill="#1877F2"/><path fill="#fff" d="M13.5 19v-6h2l.4-2.5h-2.4V9.2c0-.7.3-1.3 1.4-1.3h1.2V5.8c-.3 0-1.1-.1-2.1-.1-2.1 0-3.5 1.3-3.5 3.6v2.2H8.2V13h2.3v6z"/></svg><span>Log in with Facebook</span></button>
+        </div>
+        <div class="auth-tabs">
+          <button type="button" class="auth-tab is-active" id="authTabPassword"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="15" cy="9" r="5"/><path d="M11 13l-7 7v2h2l1-1v-1h1v-1h1l2-2"/></svg><span>Via Password</span></button>
+          <span class="auth-tabs-divider"></span>
+          <button type="button" class="auth-tab is-muted" data-auth-soon="Mobile number sign-in is coming soon."><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="7" y="3" width="10" height="18" rx="2"/><path d="M11 18h2"/></svg><span>Mobile Number</span></button>
+        </div>
+        <div class="login-card">
+          <h2 style="font-size:1.1rem;" id="authTitle">Sign in</h2>
+          <p class="muted" style="margin:0 0 4px;" id="authSubtitle">Sign in to see your orders and cart across visits.</p>
+          <input id="authName" type="text" placeholder="Full name" autocomplete="off" style="display:none;">
+          <input id="authEmail" type="email" placeholder="Email" autocomplete="off">
+          <input id="authPass" type="password" placeholder="Password (min 6 characters)" autocomplete="off">
+          <div class="login-error" id="authError"></div>
+          <button class="btn-primary" id="authSubmitBtn">Sign in</button>
+          <div class="auth-help-row" id="authHelpRow">
+            <button type="button" class="auth-link" id="forgotPasswordBtn">Forgot password?</button>
+            <span class="auth-help-divider">•</span>
+            <button type="button" class="auth-link" id="forgotEmailBtn">Forgot email?</button>
+          </div>
+        </div>
+        <p class="auth-or">or</p>
+        <div class="auth-social-signup">
+          <button type="button" class="auth-social-circle" data-auth-soon="Facebook sign-in is coming soon."><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="12" fill="#1877F2"/><path fill="#fff" d="M13.5 19v-6h2l.4-2.5h-2.4V9.2c0-.7.3-1.3 1.4-1.3h1.2V5.8c-.3 0-1.1-.1-2.1-.1-2.1 0-3.5 1.3-3.5 3.6v2.2H8.2V13h2.3v6z"/></svg></button>
+          <button type="button" class="auth-social-circle" data-auth-soon="Google sign-in is coming soon."><svg viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg></button>
+        </div>
+        <button class="mini-btn" id="authToggleBtn"><span class="auth-prompt">Haven&#39;t Signed Up Yet?</span><span class="auth-cta">Sign up Now</span></button>
       </div>
-    </div>
 
     <!-- Shown when signed in -->
     <div id="accountBody" style="display:none;">
@@ -969,6 +1028,32 @@ html,body{width:100%;max-width:100%;overflow-x:hidden;-webkit-text-size-adjust:1
       #sa-email[readonly] { background:#F5F1EC; color:var(--ink-soft); border-style:dashed; cursor:not-allowed; }
       /* Submit button: visibly disabled until backend setup. The disabled attribute itself is unchanged. */
       #sellApplySubmit:disabled { background:#EFE9E2; color:var(--ink-soft); border:1px solid var(--line); cursor:not-allowed; box-shadow:none; }
+      /* Seller application: ID document card */
+      .sa-id-card{border:1px solid var(--line);border-radius:var(--radius-sm);padding:12px;margin:6px 0 14px;background:var(--card);}
+      .sa-id-head{display:flex;align-items:center;gap:8px;font-size:.8rem;font-weight:800;letter-spacing:.04em;color:var(--ink);margin-bottom:10px;}
+      .sa-info-icon{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border:1.5px solid #FF6B00;border-radius:50%;color:#FF6B00;font-size:.7rem;font-weight:800;font-style:normal;}
+      .sa-id-row{display:flex;align-items:center;justify-content:space-between;gap:10px;border:1px solid #dddfe4;border-radius:10px;padding:11px 12px;margin-bottom:12px;}
+      .sa-id-row label{font-size:.85rem;font-weight:600;color:var(--ink);}
+      .sa-id-value{display:inline-flex;align-items:center;gap:4px;min-width:0;}
+      .sa-id-value select{appearance:none;-webkit-appearance:none;border:0;background:transparent;font:inherit;font-size:.85rem;color:var(--ink);text-align:right;padding:0;outline:none;max-width:70vw;}
+      .sa-chevron{color:var(--ink-soft);font-size:1.25rem;line-height:1;}
+      .sa-doc-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:4px 0 6px;}
+      .sa-doc-col{display:flex;flex-direction:column;gap:6px;min-width:0;}
+      .sa-doc-box{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-height:124px;border:2px dashed #FF6B00;border-radius:var(--radius-sm);background:#FFF8F2;color:#FF6B00;cursor:pointer;overflow:hidden;}
+      .sa-doc-plus{font-size:2.4rem;line-height:1;font-weight:300;}
+      .sa-doc-upload{font-size:.85rem;font-weight:700;}
+      .sa-doc-preview{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;}
+      .sa-doc-box.has-preview .sa-doc-plus,.sa-doc-box.has-preview .sa-doc-upload{display:none;}
+      .sa-file-input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;font-size:0;}
+      .sa-doc-caption{font-size:.8rem;font-weight:700;color:var(--ink);text-align:center;}
+      .sa-doc-error{color:var(--brick);font-size:.8rem;margin:6px 0 4px;}
+      /* Seller Centre layout: desktop and tablet use the full page width and centre the application card.
+         Mobile (below 640px) is not affected by these rules. */
+      @media (min-width:640px){
+        #sellerApplyGate{width:100%;}
+        #sellerApplyGate > .login-wrap{flex:1 1 auto;width:100%;min-width:0;}
+        #sellerApplyGate .login-card{max-width:720px !important;width:100%;}
+      }
     </style>
     <div id="sellerApplyGate" style="display:none;">
       <div class="login-wrap">
@@ -983,11 +1068,33 @@ html,body{width:100%;max-width:100%;overflow-x:hidden;-webkit-text-size-adjust:1
             <div class="settings-field"><label for="sa-address">Residential address <span style="color:var(--brick);">*</span></label><textarea id="sa-address" rows="3" maxlength="400" placeholder="House no., road, area, thana/upazila, district"></textarea></div>
 
             <h3 style="font-size:0.95rem;margin:14px 0 6px;">Identity</h3>
-            <div class="settings-field"><label for="sa-id-type">ID type <span style="color:var(--brick);">*</span></label><select id="sa-id-type"><option value="">Select</option><option value="national_id">National ID card (NID)</option><option value="passport">Passport</option></select></div>
+            <div class="sa-id-card">
+              <div class="sa-id-head"><span class="sa-info-icon" aria-hidden="true">i</span><span>ID DOCUMENT</span></div>
+              <div class="sa-id-row"><label for="sa-id-type">ID Type <span style="color:var(--brick);">*</span></label><span class="sa-id-value"><select id="sa-id-type"><option value="">Select</option><option value="national_id">National ID card (NID)</option><option value="passport">Passport</option></select><span class="sa-chevron" aria-hidden="true">›</span></span></div>
             <div class="settings-field"><label for="sa-id-number">ID number <span style="color:var(--brick);">*</span></label><input id="sa-id-number" type="text" autocomplete="off" spellcheck="false" maxlength="30" placeholder="As printed on your NID or passport"></div>
-            <div class="settings-field"><label for="sa-id-expiry">ID expiry date (if shown on your ID)</label><input id="sa-id-expiry" type="date"></div>
-            <div class="settings-field"><label for="sa-doc-front">Front of ID document <span style="color:var(--brick);">*</span></label><input id="sa-doc-front" type="file" accept="image/jpeg,image/png" disabled><small class="muted">JPEG or PNG only. PDF and HEIC are not accepted.</small><small class="muted" style="display:block;">Document upload will be available after admin verification setup.</small></div>
-            <div class="settings-field"><label for="sa-doc-back">Back of ID document</label><input id="sa-doc-back" type="file" accept="image/jpeg,image/png" disabled><small class="muted">JPEG or PNG only.</small></div>
+              <div class="sa-doc-grid">
+                <div class="sa-doc-col">
+                  <label class="sa-doc-box" id="sa-doc-front-box" for="sa-doc-front">
+                    <span class="sa-doc-plus" aria-hidden="true">+</span>
+                    <span class="sa-doc-upload">Upload</span>
+                    <img class="sa-doc-preview" id="sa-doc-front-preview" alt="Front of ID preview" hidden>
+                    <input id="sa-doc-front" class="sa-file-input" type="file" accept="image/jpeg,image/png">
+                  </label>
+                  <span class="sa-doc-caption">Front Side <span style="color:var(--brick);">*</span></span>
+                </div>
+                <div class="sa-doc-col">
+                  <label class="sa-doc-box" id="sa-doc-back-box" for="sa-doc-back">
+                    <span class="sa-doc-plus" aria-hidden="true">+</span>
+                    <span class="sa-doc-upload">Upload</span>
+                    <img class="sa-doc-preview" id="sa-doc-back-preview" alt="Back of ID preview" hidden>
+                    <input id="sa-doc-back" class="sa-file-input" type="file" accept="image/jpeg,image/png">
+                  </label>
+                  <span class="sa-doc-caption">Back Side</span>
+                </div>
+              </div>
+              <p class="sa-doc-error" id="sa-doc-error" role="alert" hidden></p>
+              <small class="muted">JPEG or PNG only. PDF and HEIC are not accepted. Photos are checked here only; they are not uploaded until admin verification is set up.</small>
+            </div>
 
             <h3 style="font-size:0.95rem;margin:14px 0 6px;">Shop</h3>
             <p class="muted" style="margin:0 0 8px;">Seller type: Individual seller</p>
@@ -1469,7 +1576,7 @@ async function loadProductsFromDB(){
     return false;
   }
   if (!data || data.length === 0) {
-    $('#feedGrid').innerHTML = `<p style="grid-column:1/-1;color:var(--ink-soft);padding:20px 0;font-size:0.8rem;">Connected to the database, but the products table is empty. Run seed-products.sql in Supabase.</p>`;
+    $('#feedGrid').innerHTML = `<p style="grid-column:1/-1;color:var(--ink-soft);padding:20px 0;font-size:0.8rem;">No products available yet.</p>`;
     return false;
   }
   // Hide listings from any seller an admin has suspended (data still exists in
@@ -3715,6 +3822,7 @@ let appHistoryReady = false;
 
 function showView(view, productId){
   if (view === 'admin') view = 'admin-gate';
+  document.body.classList.remove('auth-gate-open');
   if (view === 'settings' && !authState.user) view = 'account';
   // Leaving a chat thread for ANY screen (Back button, device Back, or the bottom bar) resets the
   // Messages tab to the Chat conversation list. Opening a chat from Alerts marks its messages read,
@@ -3875,6 +3983,7 @@ async function ensureProfile(user){
 async function renderAccount(){
   if (authState.user) {
     $('#authGate').style.display = 'none';
+    document.body.classList.remove('auth-gate-open');
     $('#accountBody').style.display = 'block';
     const name = authState.user.user_metadata?.full_name || authState.user.email;
     $('#accountName').textContent = name;
@@ -3890,22 +3999,9 @@ async function renderAccount(){
     // the same rule independently in checkAdminAccess).
     const { data: profileRow, error: profileErr } = await sb.from('profiles').select('role').eq('id', authState.user.id).single();
     $('#adminPanelRow').style.display = (profileRow && profileRow.role === 'admin') ? '' : 'none';
-    // TEMPORARY STAGING DIAGNOSTIC: remove after debugging.
-    {
-      const old = document.getElementById('orhanoDiag'); if (old) old.remove();
-      const d = document.createElement('div');
-      d.id = 'orhanoDiag';
-      d.style.cssText = 'margin:10px 0;padding:8px;border:2px solid #b00;background:#fff6f6;font:12px/1.4 monospace;word-break:break-all;';
-      d.textContent = 'DIAG | authState.user.id=' + authState.user.id +
-        ' | authState.user.email=' + authState.user.email +
-        ' | profile data.role=' + (profileRow ? profileRow.role : 'NONE') +
-        ' | profile error code=' + (profileErr ? (profileErr.code || 'none') : 'none') +
-        ' | profile error message=' + (profileErr ? profileErr.message : 'none') +
-        ' | SUPABASE_URL=' + SUPABASE_URL;
-      $('#accountBody').prepend(d);
-    }
   } else {
     $('#authGate').style.display = 'flex';
+    document.body.classList.add('auth-gate-open');
     $('#accountBody').style.display = 'none';
   }
 }
@@ -3964,7 +4060,8 @@ function setAuthMode(mode){
     ? 'Takes a few seconds. Use a real email — you may need to confirm it.'
     : 'Sign in to see your orders and cart across visits.';
   $('#authSubmitBtn').textContent = isSignup ? 'Create account' : 'Sign in';
-  $('#authToggleBtn').textContent = isSignup ? 'Already have an account? Sign in' : 'New here? Create an account';
+  $('#authGate').classList.toggle('is-signup', isSignup);
+  $('#authToggleBtn').innerHTML = isSignup ? '<span class="auth-prompt">Already have account?</span><span class="auth-cta">Login Now</span>' : '<span class="auth-prompt">Haven&#39;t Signed Up Yet?</span><span class="auth-cta">Sign up Now</span>';
   $('#authHelpRow').style.display = isSignup ? 'none' : 'flex';
   $('#authError').textContent = '';
 }
@@ -6724,6 +6821,35 @@ document.getElementById('settingsCurrencySelect')?.addEventListener('change', e 
 });
 
 $('#sellApplyForm').addEventListener('submit', e => e.preventDefault());
+
+/* ID document pickers: tap a box to choose a JPEG or PNG and show it inside the box. Nothing is uploaded here. */
+(function initIdDocumentPickers(){
+  const EXT = /\.(jpe?g|png)$/i;
+  const TYPES = ['image/jpeg', 'image/png'];
+  const urls = {};
+  const isAllowed = (file) => file.type ? TYPES.includes(file.type) : EXT.test(file.name || '');
+  const setError = (msg) => { const el = $('#sa-doc-error'); if (el) { el.textContent = msg || ''; el.hidden = !msg; } };
+  ['sa-doc-front', 'sa-doc-back'].forEach(id => {
+    const input = $('#' + id), box = $('#' + id + '-box'), img = $('#' + id + '-preview');
+    if (!input || !box || !img) return;
+    const label = id === 'sa-doc-front' ? 'front' : 'back';
+    const clear = () => { if (urls[id]) { URL.revokeObjectURL(urls[id]); urls[id] = null; } img.removeAttribute('src'); img.hidden = true; box.classList.remove('has-preview'); };
+    input.addEventListener('change', () => {
+      const file = input.files && input.files[0];
+      if (!file) { clear(); setError(''); return; }
+      if (!isAllowed(file)) {
+        input.value = '';
+        clear();
+        setError('Only JPEG or PNG images can be used for the ' + label + ' of your ID.');
+        return;
+      }
+      setError('');
+      if (urls[id]) URL.revokeObjectURL(urls[id]);
+      urls[id] = URL.createObjectURL(file);
+      img.src = urls[id]; img.hidden = false; box.classList.add('has-preview');
+    });
+  });
+})();
 /* NOTE (fix): removed the old prompt()-based "add product" handler that used
    to be bound here. Event listeners on the SAME element fire in the order
    they were registered, regardless of capture/bubble phase — so this old
@@ -6750,6 +6876,9 @@ $('#authSubmitBtn').addEventListener('click', handleAuthSubmit);
 $('#authToggleBtn').addEventListener('click', () => setAuthMode(authState.mode === 'signin' ? 'signup' : 'signin'));
 document.getElementById('forgotPasswordBtn')?.addEventListener('click', showForgotPassword);
 document.getElementById('forgotEmailBtn')?.addEventListener('click', showForgotEmail);
+  document.getElementById('authBackBtn')?.addEventListener('click', () => goto('home'));
+  document.querySelectorAll('[data-auth-soon]').forEach(b => b.addEventListener('click', () => toast(b.dataset.authSoon)));
+  { const authLogo = document.getElementById('authBrandLogo'); const headerLogo = document.querySelector('.brand-word'); if (authLogo && headerLogo) authLogo.src = headerLogo.src; }
 document.getElementById('signOutBtn')?.addEventListener('click', handleSignOut);
 document.getElementById('settingsSignOutBtn')?.addEventListener('click', handleSignOut);
 document.addEventListener('click', e => {

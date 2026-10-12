@@ -897,7 +897,7 @@ html,body{width:100%;max-width:100%;overflow-x:hidden;-webkit-text-size-adjust:1
           <span class="sicon">文</span><span class="stext"><span class="stitle"><span data-i18n="language">ভাষা - Language</span></span><span class="ssub" id="settingsLanguageSub">English</span></span><span class="chev">›</span>
         </button>
         <button class="settings-item" id="settingsSecurityBtn">
-          <span class="sicon">🔐</span><span class="stext"><span class="stitle" data-i18n="security">Account Security</span><span class="ssub" data-i18n="securitySub">Password and account protection</span></span><span class="chev">›</span>
+          <span class="sicon">🔐</span><span class="stext"><span class="stitle" data-i18n="security">Account Security</span><span class="ssub" data-i18n="securitySub">Password and account settings</span></span><span class="chev">›</span>
         </button>
         <button class="settings-item" id="settingsPoliciesBtn">
           <span class="sicon">📄</span><span class="stext"><span class="stitle" data-i18n="policies">Policies</span></span><span class="chev">›</span>
@@ -5061,14 +5061,14 @@ const SETTINGS_TEXT = {
   en:{
     settings:'Settings', accountInfo:'Account Information', addressBook:'Address Book',
     messages:'Messages', messagesSub:'Receive exclusive offers and personal updates',
-    country:'Country', security:'Account Security', securitySub:'Password and account protection',
+    country:'Country', security:'Account Security', securitySub:'Password and account settings',
     policies:'Policies', help:'Help', feedback:'Feedback', logout:'Logout',
     language:'ভাষা - Language'
   },
   bn:{
     settings:'সেটিংস', accountInfo:'অ্যাকাউন্ট তথ্য', addressBook:'ঠিকানা বই',
     messages:'বার্তা', messagesSub:'বিশেষ অফার ও ব্যক্তিগত আপডেট গ্রহণ করুন',
-    country:'দেশ', security:'অ্যাকাউন্ট নিরাপত্তা', securitySub:'পাসওয়ার্ড ও অ্যাকাউন্ট সুরক্ষা',
+    country:'দেশ', security:'অ্যাকাউন্ট নিরাপত্তা', securitySub:'পাসওয়ার্ড ও অ্যাকাউন্ট সেটিংস',
     policies:'নীতিমালা', help:'সহায়তা', feedback:'মতামত', logout:'লগআউট',
     language:'ভাষা - Language'
   }
@@ -5147,30 +5147,21 @@ function getUserMeta(){ return authState.user?.user_metadata || {}; }
 function showAccountInfo(){
   if(!authState.user){ goto('account'); return; }
   const meta=getUserMeta();
-  const prefs=getAccountPrefs();
   const name=meta.full_name || '';
   const phone=authState.user.phone || meta.phone || '';
   const email=authState.user.email || '';
   const gender=meta.gender || '';
   const birthday=meta.birthday || '';
-  const fpOn=!!prefs.fingerprint;
-  const quickOn=prefs.quickLogin !== false;
 
   const row=(id,label,value,action='›')=>`
     <button class="account-info-row" data-account-action="${id}">
       <span>${label}</span><span class="account-info-value">${escapeHtml(value || 'Not set')} <b>${action}</b></span>
     </button>`;
-  const toggle=(id,label,on)=>`
-    <div class="account-info-row account-info-toggle"><span>${label}</span>
-      <button type="button" class="switch ${on?'on':''}" data-account-toggle="${id}" aria-pressed="${on}"><span></span></button>
-    </div>`;
 
   openSettingsModal('Account Information', `
     <div class="account-info-list">
       ${row('name','Full Name',name)}
       ${row('password','Change Password','')}
-      ${toggle('fingerprint','Disable Fingerprint ID',fpOn)}
-      ${toggle('quickLogin','Enable Quick Login',quickOn)}
       <div class="account-info-separator"></div>
       ${row('mobile','Change Mobile',maskValue(phone,3,2))}
       ${row('email','Change Email',maskValue(email,2,10))}
@@ -5182,16 +5173,6 @@ function showAccountInfo(){
 }
 
 function bindAccountInfoEvents(){
-  $$('[data-account-toggle]').forEach(btn=>btn.onclick=async()=>{
-    const id=btn.dataset.accountToggle;
-    const prefs=getAccountPrefs();
-    const next=!btn.classList.contains('on');
-    prefs[id]=next;
-    saveAccountPrefs(prefs);
-    btn.classList.toggle('on',next);
-    btn.setAttribute('aria-pressed',String(next));
-    toast(next ? (id==='fingerprint'?'Fingerprint ID setting enabled':'Quick Login enabled') : (id==='fingerprint'?'Fingerprint ID setting disabled':'Quick Login disabled'));
-  });
   $$('[data-account-action]').forEach(btn=>btn.onclick=()=>{
     const action=btn.dataset.accountAction;
     if(action==='name') return editAccountName();

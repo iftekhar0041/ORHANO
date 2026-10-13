@@ -629,6 +629,9 @@ body.auth-gate-open .view.active{padding:0 !important;}
 #authGate .auth-tab:not(.is-active){color:var(--ink-soft); font-weight:600;}
 #authGate.is-signup .auth-phone-panel{display:none !important;}
 #authGate #authPhoneOtpArea{flex-direction:column; gap:12px;}
+#authGate .auth-phone-row{display:flex; flex-direction:column; gap:8px;}
+#authGate .auth-phone-country{flex:0 0 auto; height:50px; box-sizing:border-box; border:1px solid rgba(36,28,21,.08); border-radius:8px; background:#fff; padding:0 8px; font:600 15px 'Manrope',system-ui,sans-serif; color:var(--ink);}
+#authGate #authPhoneInput{flex:1 1 auto; min-width:0;}
 html,body{width:100%;max-width:100%;overflow-x:hidden;-webkit-text-size-adjust:100%;text-size-adjust:100%;}
 .app{min-width:0;overflow-x:hidden;}
 @media(max-width:639px){.login-card{width:min(100%,360px);padding:20px 16px}.login-card input{font-size:16px}.app{padding-bottom:calc(74px + env(safe-area-inset-bottom))}.topbar{padding-top:calc(10px + env(safe-area-inset-top))}.hero{margin-left:12px;margin-right:12px}.section{padding-left:12px;padding-right:12px}.categories{padding-left:12px;padding-right:12px}.cart-list,.account-list,.messages-list,.account-grid{padding-left:12px;padding-right:12px}.page-title,.account-head,.search-status{padding-left:12px;padding-right:12px}.cart-summary{margin-left:12px;margin-right:12px}}
@@ -873,7 +876,10 @@ html,body{width:100%;max-width:100%;overflow-x:hidden;-webkit-text-size-adjust:1
           <button type="button" class="auth-tab" id="authTabMobile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="7" y="3" width="10" height="18" rx="2"/><path d="M11 18h2"/></svg><span>Mobile Number</span></button>
         </div>
         <div class="login-card auth-phone-panel" id="authPhonePanel" style="display:none;">
-          <input id="authPhoneInput" type="tel" inputmode="tel" autocomplete="tel" placeholder="Mobile number, e.g. +8801XXXXXXXXX">
+          <div class="auth-phone-row">
+            <select id="authPhoneCountry" class="auth-phone-country" aria-label="Country code"></select>
+            <input id="authPhoneInput" type="tel" inputmode="tel" autocomplete="tel" placeholder="01XXXXXXXXX">
+          </div>
           <button class="btn-primary" id="authPhoneSendBtn">Send code</button>
           <div id="authPhoneOtpArea" style="display:none;">
             <input id="authPhoneOtpInput" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="6-digit code">
@@ -1588,7 +1594,7 @@ async function loadProductsFromDB(){
     return false;
   }
   if (!data || data.length === 0) {
-    $('#feedGrid').innerHTML = `<p style="grid-column:1/-1;color:var(--ink-soft);padding:20px 0;font-size:0.8rem;">No products available yet.</p>`;
+    $('#feedGrid').innerHTML = `<p style="grid-column:1/-1;color:var(--ink-soft);padding:20px 0;font-size:0.8rem;">Connected to the database, but the products table is empty. Run seed-products.sql in Supabase.</p>`;
     return false;
   }
   // Hide listings from any seller an admin has suspended (data still exists in
@@ -4283,22 +4289,329 @@ async function startGoogleSignIn(){
   });
   if (error) { clearProviderSignIn(); showProviderError(friendlyAuthError(error) || error.message || 'Sign-in could not start. Please try again.'); }
 }
+async function startFacebookSignIn(){
+  showProviderError('');
+  startProviderSignIn('facebook', true);
+  const { error } = await sb.auth.signInWithOAuth({
+    provider: 'facebook',
+    options: {
+      redirectTo: window.location.origin
+    }
+  });
+  if (error) { clearProviderSignIn(); showProviderError(friendlyAuthError(error) || error.message || 'Sign-in could not start. Please try again.'); }
+}
 async function startOAuthSignIn(provider){
   showProviderError('');
   startProviderSignIn(provider, true);
   const { error } = await sb.auth.signInWithOAuth({ provider, options: { redirectTo: window.location.origin } });
   if (error) { clearProviderSignIn(); showProviderError(friendlyAuthError(error) || error.message || 'Sign-in could not start. Please try again.'); }
 }
-function normalizeAuthPhone(raw){
-  const v = String(raw || '').replace(/[\s\-()]/g, '');
-  if (/^01\d{9}$/.test(v)) return '+880' + v.slice(1);
-  if (/^\+[1-9]\d{7,14}$/.test(v)) return v;
-  return null;
+/* ---------- Phone login: country list ----------
+   To add a country, add one line to AUTH_PHONE_COUNTRIES (ISO code, name, calling code without "+").
+   ex: example shown as the placeholder and in the error message (optional).
+   re: strict national-number rule (optional). Countries without re are checked by length only:
+   4 to 15 digits in total including the calling code. Bangladesh (+880) is the default. */
+const AUTH_PHONE_COUNTRIES = [
+  { iso: "AF", name: "Afghanistan", dial: "93" },
+  { iso: "AX", name: "Åland Islands", dial: "358" },
+  { iso: "AL", name: "Albania", dial: "355" },
+  { iso: "DZ", name: "Algeria", dial: "213" },
+  { iso: "AS", name: "American Samoa", dial: "1684" },
+  { iso: "AD", name: "Andorra", dial: "376" },
+  { iso: "AO", name: "Angola", dial: "244" },
+  { iso: "AI", name: "Anguilla", dial: "1264" },
+  { iso: "AG", name: "Antigua and Barbuda", dial: "1268" },
+  { iso: "AR", name: "Argentina", dial: "54" },
+  { iso: "AM", name: "Armenia", dial: "374" },
+  { iso: "AW", name: "Aruba", dial: "297" },
+  { iso: "AU", name: "Australia", dial: "61" },
+  { iso: "AT", name: "Austria", dial: "43" },
+  { iso: "AZ", name: "Azerbaijan", dial: "994" },
+  { iso: "BS", name: "Bahamas", dial: "1242" },
+  { iso: "BH", name: "Bahrain", dial: "973" },
+  { iso: "BD", name: "Bangladesh", dial: "880", ex: "01XXXXXXXXX", re: /^1[3-9]\d{8}$/ },
+  { iso: "BB", name: "Barbados", dial: "1246" },
+  { iso: "BY", name: "Belarus", dial: "375" },
+  { iso: "BE", name: "Belgium", dial: "32" },
+  { iso: "BZ", name: "Belize", dial: "501" },
+  { iso: "BJ", name: "Benin", dial: "229" },
+  { iso: "BM", name: "Bermuda", dial: "1441" },
+  { iso: "BT", name: "Bhutan", dial: "975" },
+  { iso: "BO", name: "Bolivia", dial: "591" },
+  { iso: "BA", name: "Bosnia and Herzegovina", dial: "387" },
+  { iso: "BW", name: "Botswana", dial: "267" },
+  { iso: "BR", name: "Brazil", dial: "55" },
+  { iso: "IO", name: "British Indian Ocean Territory", dial: "246" },
+  { iso: "VG", name: "British Virgin Islands", dial: "1284" },
+  { iso: "BN", name: "Brunei", dial: "673" },
+  { iso: "BG", name: "Bulgaria", dial: "359" },
+  { iso: "BF", name: "Burkina Faso", dial: "226" },
+  { iso: "BI", name: "Burundi", dial: "257" },
+  { iso: "KH", name: "Cambodia", dial: "855" },
+  { iso: "CM", name: "Cameroon", dial: "237" },
+  { iso: "CA", name: "Canada", dial: "1", ex: "416XXXXXXX", re: /^[2-9]\d{9}$/ },
+  { iso: "CV", name: "Cape Verde", dial: "238" },
+  { iso: "KY", name: "Cayman Islands", dial: "1345" },
+  { iso: "CF", name: "Central African Republic", dial: "236" },
+  { iso: "TD", name: "Chad", dial: "235" },
+  { iso: "CL", name: "Chile", dial: "56" },
+  { iso: "CN", name: "China", dial: "86" },
+  { iso: "CX", name: "Christmas Island", dial: "61" },
+  { iso: "CC", name: "Cocos (Keeling) Islands", dial: "61" },
+  { iso: "CO", name: "Colombia", dial: "57" },
+  { iso: "KM", name: "Comoros", dial: "269" },
+  { iso: "CG", name: "Congo (Republic)", dial: "242" },
+  { iso: "CD", name: "Congo (DR)", dial: "243" },
+  { iso: "CK", name: "Cook Islands", dial: "682" },
+  { iso: "CR", name: "Costa Rica", dial: "506" },
+  { iso: "CI", name: "Côte d'Ivoire", dial: "225" },
+  { iso: "HR", name: "Croatia", dial: "385" },
+  { iso: "CU", name: "Cuba", dial: "53" },
+  { iso: "CW", name: "Curaçao", dial: "599" },
+  { iso: "CY", name: "Cyprus", dial: "357" },
+  { iso: "CZ", name: "Czech Republic", dial: "420" },
+  { iso: "DK", name: "Denmark", dial: "45" },
+  { iso: "DJ", name: "Djibouti", dial: "253" },
+  { iso: "DM", name: "Dominica", dial: "1767" },
+  { iso: "DO", name: "Dominican Republic", dial: "1809" },
+  { iso: "EC", name: "Ecuador", dial: "593" },
+  { iso: "EG", name: "Egypt", dial: "20" },
+  { iso: "SV", name: "El Salvador", dial: "503" },
+  { iso: "GQ", name: "Equatorial Guinea", dial: "240" },
+  { iso: "ER", name: "Eritrea", dial: "291" },
+  { iso: "EE", name: "Estonia", dial: "372" },
+  { iso: "SZ", name: "Eswatini", dial: "268" },
+  { iso: "ET", name: "Ethiopia", dial: "251" },
+  { iso: "FK", name: "Falkland Islands", dial: "500" },
+  { iso: "FO", name: "Faroe Islands", dial: "298" },
+  { iso: "FJ", name: "Fiji", dial: "679" },
+  { iso: "FI", name: "Finland", dial: "358" },
+  { iso: "FR", name: "France", dial: "33" },
+  { iso: "GF", name: "French Guiana", dial: "594" },
+  { iso: "PF", name: "French Polynesia", dial: "689" },
+  { iso: "GA", name: "Gabon", dial: "241" },
+  { iso: "GM", name: "Gambia", dial: "220" },
+  { iso: "GE", name: "Georgia", dial: "995" },
+  { iso: "DE", name: "Germany", dial: "49" },
+  { iso: "GH", name: "Ghana", dial: "233" },
+  { iso: "GI", name: "Gibraltar", dial: "350" },
+  { iso: "GR", name: "Greece", dial: "30" },
+  { iso: "GL", name: "Greenland", dial: "299" },
+  { iso: "GD", name: "Grenada", dial: "1473" },
+  { iso: "GP", name: "Guadeloupe", dial: "590" },
+  { iso: "GU", name: "Guam", dial: "1671" },
+  { iso: "GT", name: "Guatemala", dial: "502" },
+  { iso: "GG", name: "Guernsey", dial: "44" },
+  { iso: "GN", name: "Guinea", dial: "224" },
+  { iso: "GW", name: "Guinea-Bissau", dial: "245" },
+  { iso: "GY", name: "Guyana", dial: "592" },
+  { iso: "HT", name: "Haiti", dial: "509" },
+  { iso: "HN", name: "Honduras", dial: "504" },
+  { iso: "HK", name: "Hong Kong", dial: "852" },
+  { iso: "HU", name: "Hungary", dial: "36" },
+  { iso: "IS", name: "Iceland", dial: "354" },
+  { iso: "IN", name: "India", dial: "91", ex: "9876543210", re: /^[6-9]\d{9}$/ },
+  { iso: "ID", name: "Indonesia", dial: "62" },
+  { iso: "IR", name: "Iran", dial: "98" },
+  { iso: "IQ", name: "Iraq", dial: "964" },
+  { iso: "IE", name: "Ireland", dial: "353" },
+  { iso: "IM", name: "Isle of Man", dial: "44" },
+  { iso: "IL", name: "Israel", dial: "972" },
+  { iso: "IT", name: "Italy", dial: "39" },
+  { iso: "JM", name: "Jamaica", dial: "1876" },
+  { iso: "JP", name: "Japan", dial: "81" },
+  { iso: "JE", name: "Jersey", dial: "44" },
+  { iso: "JO", name: "Jordan", dial: "962" },
+  { iso: "KZ", name: "Kazakhstan", dial: "7" },
+  { iso: "KE", name: "Kenya", dial: "254" },
+  { iso: "KI", name: "Kiribati", dial: "686" },
+  { iso: "XK", name: "Kosovo", dial: "383" },
+  { iso: "KW", name: "Kuwait", dial: "965" },
+  { iso: "KG", name: "Kyrgyzstan", dial: "996" },
+  { iso: "LA", name: "Laos", dial: "856" },
+  { iso: "LV", name: "Latvia", dial: "371" },
+  { iso: "LB", name: "Lebanon", dial: "961" },
+  { iso: "LS", name: "Lesotho", dial: "266" },
+  { iso: "LR", name: "Liberia", dial: "231" },
+  { iso: "LY", name: "Libya", dial: "218" },
+  { iso: "LI", name: "Liechtenstein", dial: "423" },
+  { iso: "LT", name: "Lithuania", dial: "370" },
+  { iso: "LU", name: "Luxembourg", dial: "352" },
+  { iso: "MO", name: "Macao", dial: "853" },
+  { iso: "MG", name: "Madagascar", dial: "261" },
+  { iso: "MW", name: "Malawi", dial: "265" },
+  { iso: "MY", name: "Malaysia", dial: "60" },
+  { iso: "MV", name: "Maldives", dial: "960" },
+  { iso: "ML", name: "Mali", dial: "223" },
+  { iso: "MT", name: "Malta", dial: "356" },
+  { iso: "MH", name: "Marshall Islands", dial: "692" },
+  { iso: "MQ", name: "Martinique", dial: "596" },
+  { iso: "MR", name: "Mauritania", dial: "222" },
+  { iso: "MU", name: "Mauritius", dial: "230" },
+  { iso: "YT", name: "Mayotte", dial: "262" },
+  { iso: "MX", name: "Mexico", dial: "52" },
+  { iso: "FM", name: "Micronesia", dial: "691" },
+  { iso: "MD", name: "Moldova", dial: "373" },
+  { iso: "MC", name: "Monaco", dial: "377" },
+  { iso: "MN", name: "Mongolia", dial: "976" },
+  { iso: "ME", name: "Montenegro", dial: "382" },
+  { iso: "MS", name: "Montserrat", dial: "1664" },
+  { iso: "MA", name: "Morocco", dial: "212" },
+  { iso: "MZ", name: "Mozambique", dial: "258" },
+  { iso: "MM", name: "Myanmar", dial: "95" },
+  { iso: "NA", name: "Namibia", dial: "264" },
+  { iso: "NR", name: "Nauru", dial: "674" },
+  { iso: "NP", name: "Nepal", dial: "977" },
+  { iso: "NL", name: "Netherlands", dial: "31" },
+  { iso: "NC", name: "New Caledonia", dial: "687" },
+  { iso: "NZ", name: "New Zealand", dial: "64" },
+  { iso: "NI", name: "Nicaragua", dial: "505" },
+  { iso: "NE", name: "Niger", dial: "227" },
+  { iso: "NG", name: "Nigeria", dial: "234" },
+  { iso: "NU", name: "Niue", dial: "683" },
+  { iso: "KP", name: "North Korea", dial: "850" },
+  { iso: "MK", name: "North Macedonia", dial: "389" },
+  { iso: "MP", name: "Northern Mariana Islands", dial: "1670" },
+  { iso: "NO", name: "Norway", dial: "47" },
+  { iso: "OM", name: "Oman", dial: "968" },
+  { iso: "PK", name: "Pakistan", dial: "92", ex: "3XXXXXXXXX", re: /^3\d{9}$/ },
+  { iso: "PW", name: "Palau", dial: "680" },
+  { iso: "PS", name: "Palestine", dial: "970" },
+  { iso: "PA", name: "Panama", dial: "507" },
+  { iso: "PG", name: "Papua New Guinea", dial: "675" },
+  { iso: "PY", name: "Paraguay", dial: "595" },
+  { iso: "PE", name: "Peru", dial: "51" },
+  { iso: "PH", name: "Philippines", dial: "63" },
+  { iso: "PL", name: "Poland", dial: "48" },
+  { iso: "PT", name: "Portugal", dial: "351" },
+  { iso: "PR", name: "Puerto Rico", dial: "1787" },
+  { iso: "QA", name: "Qatar", dial: "974" },
+  { iso: "RE", name: "Réunion", dial: "262" },
+  { iso: "RO", name: "Romania", dial: "40" },
+  { iso: "RU", name: "Russia", dial: "7" },
+  { iso: "RW", name: "Rwanda", dial: "250" },
+  { iso: "BL", name: "Saint Barthélemy", dial: "590" },
+  { iso: "SH", name: "Saint Helena", dial: "290" },
+  { iso: "KN", name: "Saint Kitts and Nevis", dial: "1869" },
+  { iso: "LC", name: "Saint Lucia", dial: "1758" },
+  { iso: "MF", name: "Saint Martin", dial: "590" },
+  { iso: "PM", name: "Saint Pierre and Miquelon", dial: "508" },
+  { iso: "VC", name: "Saint Vincent and the Grenadines", dial: "1784" },
+  { iso: "WS", name: "Samoa", dial: "685" },
+  { iso: "SM", name: "San Marino", dial: "378" },
+  { iso: "ST", name: "São Tomé and Príncipe", dial: "239" },
+  { iso: "SA", name: "Saudi Arabia", dial: "966", ex: "05XXXXXXXX", re: /^5\d{8}$/ },
+  { iso: "SN", name: "Senegal", dial: "221" },
+  { iso: "RS", name: "Serbia", dial: "381" },
+  { iso: "SC", name: "Seychelles", dial: "248" },
+  { iso: "SL", name: "Sierra Leone", dial: "232" },
+  { iso: "SG", name: "Singapore", dial: "65" },
+  { iso: "SX", name: "Sint Maarten", dial: "1721" },
+  { iso: "SK", name: "Slovakia", dial: "421" },
+  { iso: "SI", name: "Slovenia", dial: "386" },
+  { iso: "SB", name: "Solomon Islands", dial: "677" },
+  { iso: "SO", name: "Somalia", dial: "252" },
+  { iso: "ZA", name: "South Africa", dial: "27" },
+  { iso: "KR", name: "South Korea", dial: "82" },
+  { iso: "SS", name: "South Sudan", dial: "211" },
+  { iso: "ES", name: "Spain", dial: "34" },
+  { iso: "LK", name: "Sri Lanka", dial: "94" },
+  { iso: "SD", name: "Sudan", dial: "249" },
+  { iso: "SR", name: "Suriname", dial: "597" },
+  { iso: "SJ", name: "Svalbard and Jan Mayen", dial: "47" },
+  { iso: "SE", name: "Sweden", dial: "46" },
+  { iso: "CH", name: "Switzerland", dial: "41" },
+  { iso: "SY", name: "Syria", dial: "963" },
+  { iso: "TW", name: "Taiwan", dial: "886" },
+  { iso: "TJ", name: "Tajikistan", dial: "992" },
+  { iso: "TZ", name: "Tanzania", dial: "255" },
+  { iso: "TH", name: "Thailand", dial: "66" },
+  { iso: "TL", name: "Timor-Leste", dial: "670" },
+  { iso: "TG", name: "Togo", dial: "228" },
+  { iso: "TK", name: "Tokelau", dial: "690" },
+  { iso: "TO", name: "Tonga", dial: "676" },
+  { iso: "TT", name: "Trinidad and Tobago", dial: "1868" },
+  { iso: "TN", name: "Tunisia", dial: "216" },
+  { iso: "TR", name: "Turkey", dial: "90" },
+  { iso: "TM", name: "Turkmenistan", dial: "993" },
+  { iso: "TC", name: "Turks and Caicos Islands", dial: "1649" },
+  { iso: "TV", name: "Tuvalu", dial: "688" },
+  { iso: "UG", name: "Uganda", dial: "256" },
+  { iso: "UA", name: "Ukraine", dial: "380" },
+  { iso: "AE", name: "United Arab Emirates", dial: "971", ex: "05XXXXXXXX", re: /^5\d{8}$/ },
+  { iso: "GB", name: "United Kingdom", dial: "44", ex: "07XXXXXXXXX", re: /^7\d{9}$/ },
+  { iso: "US", name: "United States", dial: "1", ex: "202XXXXXXX", re: /^[2-9]\d{9}$/ },
+  { iso: "UY", name: "Uruguay", dial: "598" },
+  { iso: "UZ", name: "Uzbekistan", dial: "998" },
+  { iso: "VU", name: "Vanuatu", dial: "678" },
+  { iso: "VA", name: "Vatican City", dial: "39" },
+  { iso: "VE", name: "Venezuela", dial: "58" },
+  { iso: "VN", name: "Vietnam", dial: "84" },
+  { iso: "WF", name: "Wallis and Futuna", dial: "681" },
+  { iso: "EH", name: "Western Sahara", dial: "212" },
+  { iso: "YE", name: "Yemen", dial: "967" },
+  { iso: "ZM", name: "Zambia", dial: "260" },
+  { iso: "ZW", name: "Zimbabwe", dial: "263" },
+];
+const AUTH_PHONE_DEFAULT = 'BD';
+const AUTH_PHONE_BY_ISO = Object.fromEntries(AUTH_PHONE_COUNTRIES.map(c => [c.iso, c]));
+function authPhoneCountry(iso){ return AUTH_PHONE_BY_ISO[iso] || null; }
+function authPhoneNationalOk(national, c){
+  if (!/^\d+$/.test(national)) return false;
+  if (c.re) return c.re.test(national);
+  return national.length >= 4 && (c.dial.length + national.length) <= 15;
+}
+// Converts what the user typed into E.164 (+<calling code><national number>) and returns { phone, iso }, or null if invalid.
+//  - local form for the selected country: 01XXXXXXXXX (leading 0 removed), or the national number without the 0
+//  - international form with + or 00: +8801XXXXXXXXX, 008801XXXXXXXXX. The country is detected from the calling code,
+//    and the selector follows it.
+function resolveAuthPhone(raw, selectedIso){
+  const selected = authPhoneCountry(selectedIso || AUTH_PHONE_DEFAULT);
+  if (!selected) return null;
+  const v = String(raw || '').replace(/[\s\-().\/]/g, '');
+  let c = selected, national;
+  if (v.startsWith('+') || v.startsWith('00')) {
+    const intl = v.startsWith('+') ? v.slice(1) : v.slice(2);
+    if (!/^\d+$/.test(intl)) return null;
+    const matches = AUTH_PHONE_COUNTRIES.filter(x => intl.startsWith(x.dial));
+    if (!matches.length) return null;
+    const longest = Math.max(...matches.map(x => x.dial.length));
+    const best = matches.filter(x => x.dial.length === longest);
+    c = best.find(x => x.iso === selected.iso) || best[0];
+    national = intl.slice(c.dial.length);
+    if (!authPhoneNationalOk(national, c) && national.startsWith('0')) national = national.slice(1);
+  } else {
+    if (!/^\d+$/.test(v)) return null;
+    national = v.startsWith('0') ? v.slice(1) : v;
+    if (!authPhoneNationalOk(national, c) && national.startsWith(c.dial)) national = national.slice(c.dial.length);
+  }
+  if (!authPhoneNationalOk(national, c)) return null;
+  return { phone: '+' + c.dial + national, iso: c.iso };
+}
+function initAuthPhoneCountries(){
+  const select = document.getElementById('authPhoneCountry');
+  const input = document.getElementById('authPhoneInput');
+  if (!select || !input) return;
+  select.textContent = '';
+  [...AUTH_PHONE_COUNTRIES].sort((a, b) => a.name.localeCompare(b.name, 'en')).forEach(c => {
+    const option = document.createElement('option');
+    option.value = c.iso;
+    option.textContent = c.name + ' (+' + c.dial + ')';
+    select.appendChild(option);
+  });
+  select.value = AUTH_PHONE_DEFAULT;
+  const showExample = () => { const c = authPhoneCountry(select.value); input.placeholder = (c && c.ex) || 'Mobile number'; $('#authPhoneError').textContent = ''; };
+  select.addEventListener('change', showExample);
+  showExample();
 }
 async function sendAuthPhoneOtp(){
   $('#authPhoneError').textContent = '';
-  const phone = normalizeAuthPhone($('#authPhoneInput').value);
-  if (!phone) { $('#authPhoneError').textContent = 'Enter a valid mobile number, e.g. +8801XXXXXXXXX or 01XXXXXXXXX.'; return; }
+  const select = document.getElementById('authPhoneCountry');
+  const selectedIso = select?.value || AUTH_PHONE_DEFAULT;
+  const resolved = resolveAuthPhone($('#authPhoneInput').value, selectedIso);
+  if (!resolved) { const c = authPhoneCountry(selectedIso) || authPhoneCountry(AUTH_PHONE_DEFAULT); $('#authPhoneError').textContent = `Enter a valid ${c.name} mobile number${c.ex ? ', e.g. ' + c.ex : ''}.`; return; }
+  if (select && resolved.iso !== select.value) { select.value = resolved.iso; select.dispatchEvent(new Event('change')); }
+  const phone = resolved.phone;
   startProviderSignIn('phone', false);
   const { error } = await runProtectedAuth((captchaToken) => sb.auth.signInWithOtp({ phone, ...captchaCredentials(captchaToken) }), $('#authPhoneSendBtn'));
   if (error) { clearProviderSignIn(); $('#authPhoneError').textContent = friendlyAuthError(error) || error.message || 'Could not send the code. Please try again.'; return; }
@@ -6955,11 +7268,12 @@ $('#authToggleBtn').addEventListener('click', () => setAuthMode(authState.mode =
 document.getElementById('forgotPasswordBtn')?.addEventListener('click', showForgotPassword);
 document.getElementById('forgotEmailBtn')?.addEventListener('click', showForgotEmail);
   document.getElementById('authBackBtn')?.addEventListener('click', () => goto('home'));
-  document.querySelectorAll('[data-auth-provider]').forEach(b => b.addEventListener('click', () => (b.dataset.authProvider === 'google' ? startGoogleSignIn() : startOAuthSignIn(b.dataset.authProvider))));
+  document.querySelectorAll('[data-auth-provider]').forEach(b => b.addEventListener('click', () => (b.dataset.authProvider === 'google' ? startGoogleSignIn() : b.dataset.authProvider === 'facebook' ? startFacebookSignIn() : startOAuthSignIn(b.dataset.authProvider))));
   document.getElementById('authTabPassword')?.addEventListener('click', () => setLoginMethod('password'));
   document.getElementById('authTabMobile')?.addEventListener('click', () => setLoginMethod('phone'));
   document.getElementById('authPhoneSendBtn')?.addEventListener('click', sendAuthPhoneOtp);
   document.getElementById('authPhoneVerifyBtn')?.addEventListener('click', verifyAuthPhoneOtp);
+  initAuthPhoneCountries();
   { const authLogo = document.getElementById('authBrandLogo'); const headerLogo = document.querySelector('.brand-word'); if (authLogo && headerLogo) authLogo.src = headerLogo.src; }
 document.getElementById('signOutBtn')?.addEventListener('click', handleSignOut);
 document.getElementById('settingsSignOutBtn')?.addEventListener('click', handleSignOut);

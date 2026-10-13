@@ -626,6 +626,9 @@ body.auth-gate-open .view.active{padding:0 !important;}
 #authGate #authToggleBtn{margin-top:auto; width:100%; border:0; border-radius:0; background:transparent; display:flex; flex-direction:column; align-items:center; gap:6px; padding:34px 16px 30px; cursor:pointer; font:inherit;}
 #authGate .auth-prompt{font:500 16px/1.2 'Manrope',system-ui,sans-serif; color:var(--ink-soft);}
 #authGate .auth-cta{font:800 17px/1.2 'Manrope',system-ui,sans-serif; color:var(--teal-dark);}
+#authGate .auth-tab:not(.is-active){color:var(--ink-soft); font-weight:600;}
+#authGate.is-signup .auth-phone-panel{display:none !important;}
+#authGate #authPhoneOtpArea{flex-direction:column; gap:12px;}
 html,body{width:100%;max-width:100%;overflow-x:hidden;-webkit-text-size-adjust:100%;text-size-adjust:100%;}
 .app{min-width:0;overflow-x:hidden;}
 @media(max-width:639px){.login-card{width:min(100%,360px);padding:20px 16px}.login-card input{font-size:16px}.app{padding-bottom:calc(74px + env(safe-area-inset-bottom))}.topbar{padding-top:calc(10px + env(safe-area-inset-top))}.hero{margin-left:12px;margin-right:12px}.section{padding-left:12px;padding-right:12px}.categories{padding-left:12px;padding-right:12px}.cart-list,.account-list,.messages-list,.account-grid{padding-left:12px;padding-right:12px}.page-title,.account-head,.search-status{padding-left:12px;padding-right:12px}.cart-summary{margin-left:12px;margin-right:12px}}
@@ -861,13 +864,22 @@ html,body{width:100%;max-width:100%;overflow-x:hidden;-webkit-text-size-adjust:1
           <p class="auth-tagline">Discover the endless possibilities</p>
         </div>
         <div class="auth-social-login">
-          <button type="button" class="auth-social-btn" data-auth-soon="Google sign-in is coming soon."><svg viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg><span>Log in with Google</span></button>
-          <button type="button" class="auth-social-btn" data-auth-soon="Facebook sign-in is coming soon."><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="12" fill="#1877F2"/><path fill="#fff" d="M13.5 19v-6h2l.4-2.5h-2.4V9.2c0-.7.3-1.3 1.4-1.3h1.2V5.8c-.3 0-1.1-.1-2.1-.1-2.1 0-3.5 1.3-3.5 3.6v2.2H8.2V13h2.3v6z"/></svg><span>Log in with Facebook</span></button>
+          <button type="button" class="auth-social-btn" data-auth-provider="google"><svg viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg><span>Log in with Google</span></button>
+          <button type="button" class="auth-social-btn" data-auth-provider="facebook"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="12" fill="#1877F2"/><path fill="#fff" d="M13.5 19v-6h2l.4-2.5h-2.4V9.2c0-.7.3-1.3 1.4-1.3h1.2V5.8c-.3 0-1.1-.1-2.1-.1-2.1 0-3.5 1.3-3.5 3.6v2.2H8.2V13h2.3v6z"/></svg><span>Log in with Facebook</span></button>
         </div>
         <div class="auth-tabs">
           <button type="button" class="auth-tab is-active" id="authTabPassword"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="15" cy="9" r="5"/><path d="M11 13l-7 7v2h2l1-1v-1h1v-1h1l2-2"/></svg><span>Via Password</span></button>
           <span class="auth-tabs-divider"></span>
-          <button type="button" class="auth-tab is-muted" data-auth-soon="Mobile number sign-in is coming soon."><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="7" y="3" width="10" height="18" rx="2"/><path d="M11 18h2"/></svg><span>Mobile Number</span></button>
+          <button type="button" class="auth-tab" id="authTabMobile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="7" y="3" width="10" height="18" rx="2"/><path d="M11 18h2"/></svg><span>Mobile Number</span></button>
+        </div>
+        <div class="login-card auth-phone-panel" id="authPhonePanel" style="display:none;">
+          <input id="authPhoneInput" type="tel" inputmode="tel" autocomplete="tel" placeholder="Mobile number, e.g. +8801XXXXXXXXX">
+          <button class="btn-primary" id="authPhoneSendBtn">Send code</button>
+          <div id="authPhoneOtpArea" style="display:none;">
+            <input id="authPhoneOtpInput" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="6-digit code">
+            <button class="btn-primary" id="authPhoneVerifyBtn">Verify</button>
+          </div>
+          <div class="login-error" id="authPhoneError"></div>
         </div>
         <div class="login-card">
           <h2 style="font-size:1.1rem;" id="authTitle">Sign in</h2>
@@ -885,8 +897,8 @@ html,body{width:100%;max-width:100%;overflow-x:hidden;-webkit-text-size-adjust:1
         </div>
         <p class="auth-or">or</p>
         <div class="auth-social-signup">
-          <button type="button" class="auth-social-circle" data-auth-soon="Facebook sign-in is coming soon."><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="12" fill="#1877F2"/><path fill="#fff" d="M13.5 19v-6h2l.4-2.5h-2.4V9.2c0-.7.3-1.3 1.4-1.3h1.2V5.8c-.3 0-1.1-.1-2.1-.1-2.1 0-3.5 1.3-3.5 3.6v2.2H8.2V13h2.3v6z"/></svg></button>
-          <button type="button" class="auth-social-circle" data-auth-soon="Google sign-in is coming soon."><svg viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg></button>
+          <button type="button" class="auth-social-circle" data-auth-provider="facebook"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="12" fill="#1877F2"/><path fill="#fff" d="M13.5 19v-6h2l.4-2.5h-2.4V9.2c0-.7.3-1.3 1.4-1.3h1.2V5.8c-.3 0-1.1-.1-2.1-.1-2.1 0-3.5 1.3-3.5 3.6v2.2H8.2V13h2.3v6z"/></svg></button>
+          <button type="button" class="auth-social-circle" data-auth-provider="google"><svg viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg></button>
         </div>
         <button class="mini-btn" id="authToggleBtn"><span class="auth-prompt">Haven&#39;t Signed Up Yet?</span><span class="auth-cta">Sign up Now</span></button>
       </div>
@@ -1576,7 +1588,7 @@ async function loadProductsFromDB(){
     return false;
   }
   if (!data || data.length === 0) {
-    $('#feedGrid').innerHTML = `<p style="grid-column:1/-1;color:var(--ink-soft);padding:20px 0;font-size:0.8rem;">Connected to the database, but the products table is empty. Run seed-products.sql in Supabase.</p>`;
+    $('#feedGrid').innerHTML = `<p style="grid-column:1/-1;color:var(--ink-soft);padding:20px 0;font-size:0.8rem;">No products available yet.</p>`;
     return false;
   }
   // Hide listings from any seller an admin has suspended (data still exists in
@@ -3985,9 +3997,9 @@ async function renderAccount(){
     $('#authGate').style.display = 'none';
     document.body.classList.remove('auth-gate-open');
     $('#accountBody').style.display = 'block';
-    const name = authState.user.user_metadata?.full_name || authState.user.email;
+    const name = authState.user.user_metadata?.full_name || authState.user.email || authState.user.phone || 'ORHANO member';
     $('#accountName').textContent = name;
-    $('#accountEmail').textContent = authState.user.email;
+    $('#accountEmail').textContent = authState.user.email || authState.user.phone || '';
     applyAvatar($('#accountAvatar'), name, authState.user.user_metadata?.avatar_url);
     $('#statSaved').textContent = state.wishlist.size;
     const { count } = await sb.from('orders').select('*', { count: 'exact', head: true })
@@ -4053,6 +4065,7 @@ async function handleAvatarUpload(file){
 
 function setAuthMode(mode){
   authState.mode = mode;
+  setLoginMethod('password');
   const isSignup = mode === 'signup';
   $('#authName').style.display = isSignup ? 'block' : 'none';
   $('#authTitle').textContent = isSignup ? 'Create account' : 'Sign in';
@@ -4229,6 +4242,81 @@ document.addEventListener('DOMContentLoaded',()=>{
   if(b) b.addEventListener('click',saveDirectRecoveryPassword);
 });
 
+/* ---------- Auth providers: Google / Facebook (OAuth) and mobile number (SMS one-time code) ---------- */
+const PROVIDER_SIGNIN_KEY = 'orhano_provider_sign_in';
+let authPhonePending = null;
+function setLoginMethod(method){
+  const phone = method === 'phone';
+  document.querySelectorAll('#authGate .login-card:not(.auth-phone-panel)').forEach(c => { c.style.display = phone ? 'none' : ''; });
+  const panel = document.getElementById('authPhonePanel');
+  if (panel) panel.style.display = phone ? 'flex' : 'none';
+  document.getElementById('authTabPassword')?.classList.toggle('is-active', !phone);
+  document.getElementById('authTabMobile')?.classList.toggle('is-active', phone);
+  $('#authError').textContent = '';
+  $('#authPhoneError').textContent = '';
+}
+function showProviderError(message){
+  const panel = document.getElementById('authPhonePanel');
+  const onPhone = !!panel && panel.style.display !== 'none';
+  $(onPhone ? '#authPhoneError' : '#authError').textContent = message;
+}
+function startProviderSignIn(provider, withCart){
+  try { sessionStorage.setItem(PROVIDER_SIGNIN_KEY, JSON.stringify(withCart ? { provider, cart: { ...state.cart } } : { provider })); } catch (e) {}
+}
+function clearProviderSignIn(){ try { sessionStorage.removeItem(PROVIDER_SIGNIN_KEY); } catch (e) {} }
+function consumeProviderSignIn(){
+  try {
+    const raw = sessionStorage.getItem(PROVIDER_SIGNIN_KEY);
+    if (!raw) return null;
+    sessionStorage.removeItem(PROVIDER_SIGNIN_KEY);
+    return JSON.parse(raw);
+  } catch (e) { return null; }
+}
+async function startGoogleSignIn(){
+  showProviderError('');
+  startProviderSignIn('google', true);
+  const { error } = await sb.auth.signInWithOAuth({
+    provider: 'google',
+    options: {
+      redirectTo: window.location.origin
+    }
+  });
+  if (error) { clearProviderSignIn(); showProviderError(friendlyAuthError(error) || error.message || 'Sign-in could not start. Please try again.'); }
+}
+async function startOAuthSignIn(provider){
+  showProviderError('');
+  startProviderSignIn(provider, true);
+  const { error } = await sb.auth.signInWithOAuth({ provider, options: { redirectTo: window.location.origin } });
+  if (error) { clearProviderSignIn(); showProviderError(friendlyAuthError(error) || error.message || 'Sign-in could not start. Please try again.'); }
+}
+function normalizeAuthPhone(raw){
+  const v = String(raw || '').replace(/[\s\-()]/g, '');
+  if (/^01\d{9}$/.test(v)) return '+880' + v.slice(1);
+  if (/^\+[1-9]\d{7,14}$/.test(v)) return v;
+  return null;
+}
+async function sendAuthPhoneOtp(){
+  $('#authPhoneError').textContent = '';
+  const phone = normalizeAuthPhone($('#authPhoneInput').value);
+  if (!phone) { $('#authPhoneError').textContent = 'Enter a valid mobile number, e.g. +8801XXXXXXXXX or 01XXXXXXXXX.'; return; }
+  startProviderSignIn('phone', false);
+  const { error } = await runProtectedAuth((captchaToken) => sb.auth.signInWithOtp({ phone, ...captchaCredentials(captchaToken) }), $('#authPhoneSendBtn'));
+  if (error) { clearProviderSignIn(); $('#authPhoneError').textContent = friendlyAuthError(error) || error.message || 'Could not send the code. Please try again.'; return; }
+  authPhonePending = phone;
+  $('#authPhoneOtpArea').style.display = 'flex';
+  $('#authPhoneSendBtn').textContent = 'Resend code';
+  toast('Code sent by SMS');
+}
+async function verifyAuthPhoneOtp(){
+  $('#authPhoneError').textContent = '';
+  const token = $('#authPhoneOtpInput').value.trim();
+  if (!authPhonePending) { $('#authPhoneError').textContent = 'Send a code first.'; return; }
+  if (!/^\d{6}$/.test(token)) { $('#authPhoneError').textContent = 'Enter the 6-digit code.'; return; }
+  const { error } = await sb.auth.verifyOtp({ phone: authPhonePending, token, type: 'sms' });
+  if (error) { $('#authPhoneError').textContent = friendlyAuthError(error) || error.message || 'Wrong or expired code.'; return; }
+  authPhonePending = null;
+}
+
 async function initAuth(){
   // Register the recovery listener BEFORE restoring the session so the
   // PASSWORD_RECOVERY event cannot be missed during page initialization.
@@ -4238,6 +4326,8 @@ async function initAuth(){
       showDirectRecoveryScreen();
       return;
     }
+    const providerSignIn = _event === 'SIGNED_IN' ? consumeProviderSignIn() : null;
+    const providerGuestCart = providerSignIn ? { ...((providerSignIn.cart) || state.cart || {}) } : null;
     authState.user = session ? session.user : null;
     if (authState.user) {
       await ensureProfile(authState.user);
@@ -4247,6 +4337,13 @@ async function initAuth(){
       await loadAddressesFromDB();
       updateMsgDot();
       subscribeToChatRealtime();
+      if (providerSignIn) {
+        if (providerGuestCart && Object.keys(providerGuestCart).length) state.cart = providerGuestCart;
+        await mergeLocalCartIntoDB();
+        await loadCartFromDB();
+        refreshProductCards();
+        toast('Signed in');
+      }
     }
     if (state.view === 'account') renderAccount();
   });
@@ -6858,7 +6955,11 @@ $('#authToggleBtn').addEventListener('click', () => setAuthMode(authState.mode =
 document.getElementById('forgotPasswordBtn')?.addEventListener('click', showForgotPassword);
 document.getElementById('forgotEmailBtn')?.addEventListener('click', showForgotEmail);
   document.getElementById('authBackBtn')?.addEventListener('click', () => goto('home'));
-  document.querySelectorAll('[data-auth-soon]').forEach(b => b.addEventListener('click', () => toast(b.dataset.authSoon)));
+  document.querySelectorAll('[data-auth-provider]').forEach(b => b.addEventListener('click', () => (b.dataset.authProvider === 'google' ? startGoogleSignIn() : startOAuthSignIn(b.dataset.authProvider))));
+  document.getElementById('authTabPassword')?.addEventListener('click', () => setLoginMethod('password'));
+  document.getElementById('authTabMobile')?.addEventListener('click', () => setLoginMethod('phone'));
+  document.getElementById('authPhoneSendBtn')?.addEventListener('click', sendAuthPhoneOtp);
+  document.getElementById('authPhoneVerifyBtn')?.addEventListener('click', verifyAuthPhoneOtp);
   { const authLogo = document.getElementById('authBrandLogo'); const headerLogo = document.querySelector('.brand-word'); if (authLogo && headerLogo) authLogo.src = headerLogo.src; }
 document.getElementById('signOutBtn')?.addEventListener('click', handleSignOut);
 document.getElementById('settingsSignOutBtn')?.addEventListener('click', handleSignOut);

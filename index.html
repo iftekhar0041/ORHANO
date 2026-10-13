@@ -1083,7 +1083,7 @@ html,body{width:100%;max-width:100%;overflow-x:hidden;-webkit-text-size-adjust:1
             <div class="settings-field"><label for="sa-fullname">Full legal name <span style="color:var(--brick);">*</span></label><input id="sa-fullname" type="text" autocomplete="name" maxlength="120" placeholder="As written on your NID or passport"></div>
             <div class="settings-field"><label for="sa-mobile">Mobile number <span style="color:var(--brick);">*</span></label><input id="sa-mobile" type="tel" autocomplete="tel" inputmode="tel" maxlength="20" placeholder="01XXXXXXXXX"></div>
             <div class="settings-field"><label for="sa-email">Email (from your account)</label><input id="sa-email" type="email" autocomplete="email" readonly></div>
-            <div class="settings-field"><label for="sa-address">Residential address <span style="color:var(--brick);">*</span></label><textarea id="sa-address" rows="3" maxlength="400" placeholder="House no., road, area, thana/upazila, district"></textarea></div>
+            <div class="settings-field"><label for="sa-address">Residential address <span style="color:var(--brick);">*</span></label><textarea id="sa-address" rows="3" maxlength="300" placeholder="House no., road, area, thana/upazila, district"></textarea></div>
 
             <h3 style="font-size:0.95rem;margin:14px 0 6px;">Identity</h3>
             <div class="sa-id-card">
@@ -1111,21 +1111,22 @@ html,body{width:100%;max-width:100%;overflow-x:hidden;-webkit-text-size-adjust:1
                 </div>
               </div>
               <p class="sa-doc-error" id="sa-doc-error" role="alert" hidden></p>
-              <small class="muted">JPEG or PNG only. PDF and HEIC are not accepted. Photos are checked here only; they are not uploaded until admin verification is set up.</small>
+              <small class="muted">JPEG or PNG only. PDF and HEIC are not accepted. JPEG or PNG only, up to 5 MB. Your ID images are uploaded privately when you submit and are used only for identity verification.</small>
             </div>
 
             <h3 style="font-size:0.95rem;margin:14px 0 6px;">Shop</h3>
             <p class="muted" style="margin:0 0 8px;">Seller type: Individual seller</p>
             <div class="settings-field"><label for="sa-shop-name">Shop name <span style="color:var(--brick);">*</span></label><input id="sa-shop-name" type="text" maxlength="80" placeholder="Your shop or brand name"></div>
-            <div class="settings-field"><label for="sa-shop-address">Shop address <span style="color:var(--brick);">*</span></label><textarea id="sa-shop-address" rows="3" maxlength="400" placeholder="House no., road, area, thana/upazila, district"></textarea></div>
+            <div class="settings-field"><label for="sa-shop-address">Shop address <span style="color:var(--brick);">*</span></label><textarea id="sa-shop-address" rows="3" maxlength="300" placeholder="House no., road, area, thana/upazila, district"></textarea></div>
             <div class="settings-field"><label for="sa-category">Category <span style="color:var(--brick);">*</span></label><select id="sa-category"><option value="">Select a category</option></select></div>
-            <div class="settings-field"><label for="sa-description">Shop description</label><textarea id="sa-description" rows="3" maxlength="600"></textarea></div>
+            <div class="settings-field"><label for="sa-description">Shop description</label><textarea id="sa-description" rows="3" maxlength="500"></textarea></div>
 
             <h3 style="font-size:0.95rem;margin:14px 0 6px;">Declaration</h3>
             <label style="display:flex;gap:8px;align-items:flex-start;font-size:0.85rem;margin-bottom:8px;"><input id="sa-age-confirm" type="checkbox" required style="margin-top:3px;"> <span>I confirm that I am 18 years or older.</span></label>
             <label style="display:flex;gap:8px;align-items:flex-start;font-size:0.85rem;"><input id="sa-consent" type="checkbox" required style="margin-top:3px;"> <span>I confirm the information I provide is accurate, and I consent to ORHANO verifying it using the identity and shop details I submit.</span></label>
 
-            <p class="muted" id="sellApplyNotice" style="margin:14px 0 8px;">Seller application submission will be available after admin verification setup. Nothing you enter here is saved or sent yet.</p>
+            <p class="muted" id="sellApplyNotice" style="margin:14px 0 8px;">Review your details, then submit. Nothing is final until an admin approves your application.</p>
+            <p class="sa-doc-error" id="sellApplyError" role="alert" hidden></p>
             <button type="submit" class="btn-primary" id="sellApplySubmit" disabled style="width:100%;">Submit Application</button>
           </form>
         </div>
@@ -1275,6 +1276,7 @@ html,body{width:100%;max-width:100%;overflow-x:hidden;-webkit-text-size-adjust:1
       <h2 style="font-size:1rem;">Seller applications</h2>
     </div>
     <div class="admin-list" id="adminSellerApps"></div>
+    <div id="adminSellerReview" style="display:none;margin:8px 0 14px;"></div>
     <div class="section-head" style="padding:14px 16px 0;">
       <h2 style="font-size:1rem;">All sellers</h2>
     </div>
@@ -4870,25 +4872,6 @@ function showAdminProductDetails(id){
 // Task 13D-1: pending seller applications, now also showing email/mobile
 // (from adminUsersCache — see loadAdminUsers) alongside the existing
 // existing-listing-count hint.
-function renderAdminSellerApps(){
-  const container = $('#adminSellerApps');
-  if (!container) return;
-  container.innerHTML = adminSellerAppsCache.length
-    ? adminSellerAppsCache.map(p => {
-        const existing = adminProductCountBySellerCache[p.id] || 0;
-        const contact = adminUsersCache.find(u => u.id === p.id);
-        const contactLine = contact ? `${escapeHtml(contact.email || 'No email')} · ${escapeHtml(contact.phone || 'No mobile')} · ` : '';
-        const hint = existing > 0
-          ? `⚠️ ${contactLine}${existing} existing listing(s) — likely closed account, not new`
-          : `${contactLine}Waiting for review`;
-        return `
-      <div class="admin-row admin-seller-row">
-        <div class="pcard-name admin-seller-info">${escapeHtml(p.full_name || 'Unnamed user')}<br><span class="pcard-meta">${hint}</span></div>
-        <div class="admin-seller-action"><span class="muted" style="font-size:0.8rem;">Decision paused until secure review is set up</span></div>
-      </div>`;
-      }).join('')
-    : `<p class="muted">No pending seller applications.</p>`;
-}
 
 // Task 13D-1: seller rows now also show email/mobile — sourced from
 // adminUsersCache (already fetched by loadAdminUsers via the admin-users
@@ -4914,7 +4897,7 @@ function adminSellerRowHtml(s){
   const actionBtn = s.seller_status === 'suspended'
     ? `<button class="mini-btn primary" data-seller-reactivate="${s.id}">Reactivate</button>`
     : s.seller_status === 'rejected'
-      ? `<span class="muted" style="font-size:0.8rem;">Decision paused until secure review is set up</span>`
+      ? `<span class="muted" style="font-size:0.8rem;">Rejected · the applicant can apply again</span>`
       : `<button class="mini-btn danger" data-seller-suspend="${s.id}">Suspend</button>`;
   return `
       <div class="admin-row admin-seller-row">
@@ -5088,6 +5071,188 @@ function renderSellApplyForm(){
     cat.innerHTML = '<option value="">Select a category</option>' +
       CATEGORIES.map(c => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.label)}</option>`).join('');
   }
+  updateSellerSubmitState();
+}
+
+/* ---------- Seller application: submit flow (existing seller_* functions and the private seller-documents bucket) ---------- */
+const SELLER_DOC_MAX_BYTES = 5 * 1024 * 1024;
+const SELLER_DOC_TYPES = ['image/jpeg', 'image/png'];
+const SELLER_ID_TYPE_TO_DB = { national_id: 'nid', passport: 'passport' };
+const SELLER_ID_LABEL = { nid: 'NID', passport: 'Passport', national_id: 'NID' };
+function sellerValue(id){ const el = document.getElementById(id); return el ? String(el.value || '').trim() : ''; }
+function sellerChecked(id){ const el = document.getElementById(id); return !!(el && el.checked); }
+function sellerFileOf(id){ const el = document.getElementById(id); return el && el.files && el.files[0] ? el.files[0] : null; }
+// Returns { details } when every required field is valid, otherwise { problem } with a message for the user.
+function sellerFormDetails(){
+  const fullName = sellerValue('sa-fullname');
+  if (fullName.length < 2 || fullName.length > 100) return { problem: 'Enter your full legal name (2–100 characters).' };
+  const mobile = resolveAuthPhone(sellerValue('sa-mobile'), AUTH_PHONE_DEFAULT);
+  if (!mobile) return { problem: 'Enter a valid mobile number, e.g. 01XXXXXXXXX.' };
+  const address = sellerValue('sa-address');
+  if (address.length < 5 || address.length > 300) return { problem: 'Residential address must be 5–300 characters.' };
+  const idType = sellerValue('sa-id-type');
+  if (!SELLER_ID_TYPE_TO_DB[idType]) return { problem: 'Select an ID type.' };
+  const idNumber = sellerValue('sa-id-number');
+  if (!/^[A-Za-z0-9]{5,20}$/.test(idNumber)) return { problem: 'Enter a valid ID number (5–20 letters or digits).' };
+  const shopName = sellerValue('sa-shop-name');
+  if (shopName.length < 2 || shopName.length > 100) return { problem: 'Shop name must be 2–100 characters.' };
+  const shopAddress = sellerValue('sa-shop-address');
+  if (shopAddress.length < 5 || shopAddress.length > 300) return { problem: 'Shop address must be 5–300 characters.' };
+  const category = sellerValue('sa-category');
+  if (!category) return { problem: 'Select a category.' };
+  const description = sellerValue('sa-description');
+  if (description.length > 500) return { problem: 'Shop description must be 500 characters or fewer.' };
+  if (!sellerChecked('sa-age-confirm') || !sellerChecked('sa-consent')) return { problem: 'Both declarations must be accepted.' };
+  return { details: {
+    full_name: fullName, mobile: mobile.phone, residential_address: address,
+    id_type: SELLER_ID_TYPE_TO_DB[idType], id_number: idNumber,
+    shop_name: shopName, shop_address: shopAddress, category: category,
+    shop_description: description, declaration_18: true, declaration_accuracy: true } };
+}
+function sellerFilesProblem(){
+  for (const [id, label] of [['sa-doc-front', 'front'], ['sa-doc-back', 'back']]) {
+    const file = sellerFileOf(id);
+    if (!file) return 'Upload the ' + label + ' of your ID.';
+    if (!SELLER_DOC_TYPES.includes(file.type)) return 'Only JPEG or PNG images can be used for the ' + label + ' of your ID.';
+    if (file.size > SELLER_DOC_MAX_BYTES) return 'The ' + label + ' image must be 5 MB or smaller.';
+  }
+  return '';
+}
+function sellerFormProblem(){
+  const r = sellerFormDetails();
+  return r.problem || sellerFilesProblem();
+}
+function updateSellerSubmitState(){
+  const btn = document.getElementById('sellApplySubmit');
+  if (!btn) return;
+  btn.disabled = btn.dataset.busy === '1' || !!sellerFormProblem();
+}
+function showSellerApplyError(message){
+  const el = document.getElementById('sellApplyError');
+  if (el) { el.textContent = message || ''; el.hidden = !message; }
+}
+async function uploadSellerIdImage(appId, kind, file){
+  const label = kind === 'id_front' ? 'front' : 'back';
+  const ext = file.type === 'image/png' ? 'png' : 'jpg';
+  const path = authState.user.id + '/' + appId + '/' + kind + '-' + Date.now() + '.' + ext;
+  const { error: uploadError } = await sb.storage.from('seller-documents').upload(path, file, { contentType: file.type, upsert: false });
+  if (uploadError) throw new Error('The ' + label + ' ID image could not be uploaded: ' + uploadError.message);
+  const { error: registerError } = await sb.rpc('seller_register_document', { p_app: appId, p_kind: kind, p_path: path, p_mime: file.type, p_size: file.size });
+  if (registerError) throw new Error('The ' + label + ' ID image could not be registered: ' + registerError.message);
+}
+async function submitSellerApplication(event){
+  event.preventDefault();
+  const btn = document.getElementById('sellApplySubmit');
+  showSellerApplyError('');
+  if (!authState.user) { showSellerApplyError('Sign in before you apply.'); return; }
+  const problem = sellerFormProblem();
+  if (problem) { showSellerApplyError(problem); return; }
+  const { details } = sellerFormDetails();
+  btn.dataset.busy = '1'; btn.disabled = true; btn.textContent = 'Submitting…';
+  try {
+    const { data: appId, error: draftError } = await sb.rpc('seller_get_or_create_draft');
+    if (draftError) throw new Error(draftError.message);
+    await uploadSellerIdImage(appId, 'id_front', sellerFileOf('sa-doc-front'));
+    await uploadSellerIdImage(appId, 'id_back', sellerFileOf('sa-doc-back'));
+    const { error: submitError } = await sb.rpc('seller_submit_application', { p_details: details });
+    if (submitError) throw new Error(submitError.message);
+    btn.dataset.busy = ''; btn.textContent = 'Submit Application';
+    toast('Application submitted');
+    await renderSeller();
+  } catch (err) {
+    btn.dataset.busy = ''; btn.textContent = 'Submit Application';
+    showSellerApplyError(err.message || 'Submission failed. Please try again.');
+    updateSellerSubmitState();
+  }
+}
+function initSellerApplicationForm(){
+  const form = document.getElementById('sellApplyForm');
+  if (!form) return;
+  form.addEventListener('submit', submitSellerApplication);
+  form.addEventListener('input', updateSellerSubmitState);
+  form.addEventListener('change', updateSellerSubmitState);
+  updateSellerSubmitState();
+}
+
+/* ---------- Admin: seller applications (pending list, details, approve / reject) ---------- */
+let adminSellerApplicationsCache = [];
+function sellerCategoryLabel(id){
+  const c = (typeof CATEGORIES !== 'undefined' ? CATEGORIES : []).find(x => x.id === id);
+  return c ? c.label : (id || '');
+}
+async function loadAdminSellerApplications(){
+  const { data, error } = await sb.rpc('seller_admin_list_applications', { p_status: 'submitted' });
+  if (error) { console.error('Could not load seller applications:', error); adminSellerApplicationsCache = []; return; }
+  adminSellerApplicationsCache = data || [];
+}
+async function openAdminSellerReview(applicationId){
+  const panel = document.getElementById('adminSellerReview');
+  if (!panel) return;
+  panel.style.display = 'block';
+  panel.innerHTML = '<p class="muted">Loading application…</p>';
+  const { data, error } = await sb.rpc('seller_admin_get_application', { p_application: applicationId });
+  if (error || !data) { panel.innerHTML = '<p class="muted">Could not load this application: ' + escapeHtml(error ? error.message : 'no data') + '</p>'; return; }
+  const d = data.details || {};
+  const row = (label, value) => '<div class="admin-row"><div class="pcard-name">' + escapeHtml(label) + '</div><div class="pcard-meta">' + escapeHtml(value || '—') + '</div></div>';
+  const docs = (data.documents || []).map(doc => '<div class="admin-row"><div class="pcard-name">' + escapeHtml(doc.doc_kind === 'id_front' ? 'ID front' : 'ID back') + '</div><div class="pcard-meta">' + escapeHtml(doc.mime_type) + ' · ' + Math.round((Number(doc.size_bytes) || 0) / 1024) + ' KB · uploaded ' + escapeHtml(new Date(doc.uploaded_at).toLocaleString()) + '</div><button type="button" class="mini-btn" disabled title="Needs the document-viewing audit log">View image (audit log pending)</button></div>').join('');
+  const decide = data.status === 'submitted'
+    ? '<textarea id="adminSellerNote" rows="2" maxlength="500" placeholder="Note for the record (optional)"></textarea><div style="display:flex;gap:8px;margin-top:8px;"><button type="button" class="btn-primary" data-seller-decide="approved" data-app="' + Number(applicationId) + '">Approve</button><button type="button" class="mini-btn danger" data-seller-decide="rejected" data-app="' + Number(applicationId) + '">Reject</button></div>'
+    : '<p class="muted">Decision: ' + escapeHtml(data.status) + '</p>';
+  panel.innerHTML = '<div class="section-head" style="padding:14px 16px 0;"><h2 style="font-size:1rem;">Application #' + Number(applicationId) + '</h2></div>'
+    + row('Applicant email', data.applicant_email) + row('Full name', d.full_name) + row('Mobile', d.mobile)
+    + row('Residential address', d.residential_address) + row('ID type', SELLER_ID_LABEL[d.id_type] || d.id_type)
+    + row('ID number', d.id_number_last4 ? '****' + d.id_number_last4 : '')
+    + row('Shop name', d.shop_name) + row('Shop address', d.shop_address) + row('Category', sellerCategoryLabel(d.category)) + row('Shop description', d.shop_description)
+    + (docs || '<p class="muted">No ID images on file.</p>') + decide
+    + '<button type="button" class="mini-btn" data-seller-review-close="1" style="margin-top:8px;">Close</button>';
+}
+async function decideAdminSellerApplication(applicationId, decision){
+  const note = (document.getElementById('adminSellerNote')?.value || '').trim();
+  const question = decision === 'approved' ? 'Approve this seller application? The Seller Centre will unlock for this user.' : 'Reject this seller application?';
+  if (!confirm(question)) return;
+  const { error } = await sb.rpc('seller_admin_decide_application', { p_application: applicationId, p_decision: decision, p_note: note || null });
+  if (error) { toast('Decision failed: ' + error.message); return; }
+  toast(decision === 'approved' ? 'Seller approved' : 'Application rejected');
+  document.getElementById('adminSellerReview').style.display = 'none';
+  await renderAdmin();
+}
+// Pending profiles with no application on file (accounts closed by the seller). Uses the same profile update the admin reactivate action already uses.
+async function approveClosedSeller(userId){
+  if (!confirm('Approve this seller? This account has no application on file.')) return;
+  const { data, error } = await sb.from('profiles').update({ seller_status: 'approved' }).eq('id', userId).select();
+  if (error) { toast('Approve failed: ' + error.message); return; }
+  if (!data || data.length === 0) { toast('Approve did not apply.'); return; }
+  toast('Seller approved');
+  await renderAdmin();
+}
+function renderAdminSellerApps(){
+  const container = $('#adminSellerApps');
+  if (!container) return;
+  const applied = adminSellerApplicationsCache.map(a => '<div class="admin-row admin-seller-row">'
+    + '<div class="pcard-name admin-seller-info">' + escapeHtml(a.applicant_name || 'Unnamed applicant') + '<br><span class="pcard-meta">'
+    + escapeHtml(a.shop_name || '') + ' · ' + escapeHtml(sellerCategoryLabel(a.shop_category)) + ' · ' + escapeHtml(SELLER_ID_LABEL[a.id_type] || a.id_type || '')
+    + ' ****' + escapeHtml(a.id_number_last4 || '') + ' · ' + (a.has_front_image && a.has_back_image ? 'ID images on file' : 'ID images missing') + '</span></div>'
+    + '<div class="admin-seller-action"><button type="button" class="mini-btn" data-seller-review="' + Number(a.application_id) + '">Review</button></div></div>').join('');
+  const appliedIds = new Set(adminSellerApplicationsCache.map(a => a.applicant_user_id));
+  const closed = (adminSellerAppsCache || []).filter(p => !appliedIds.has(p.id)).map(p => '<div class="admin-row admin-seller-row">'
+    + '<div class="pcard-name admin-seller-info">' + escapeHtml(p.full_name || 'Unnamed user') + '<br><span class="pcard-meta">Pending with no application on file (closed seller account)</span></div>'
+    + '<div class="admin-seller-action"><button type="button" class="mini-btn" data-seller-legacy-approve="' + escapeHtml(p.id) + '">Approve</button></div></div>').join('');
+  container.innerHTML = (applied + closed) || '<p class="muted">No pending seller applications.</p>';
+}
+function initAdminSellerApplicationHandlers(){
+  const list = document.getElementById('adminSellerApps');
+  const review = document.getElementById('adminSellerReview');
+  if (list) list.addEventListener('click', e => {
+    const open = e.target.closest('[data-seller-review]');
+    if (open) { openAdminSellerReview(Number(open.dataset.sellerReview)); return; }
+    const legacy = e.target.closest('[data-seller-legacy-approve]');
+    if (legacy) approveClosedSeller(legacy.dataset.sellerLegacyApprove);
+  });
+  if (review) review.addEventListener('click', e => {
+    const decide = e.target.closest('[data-seller-decide]');
+    if (decide) { decideAdminSellerApplication(Number(decide.dataset.app), decide.dataset.sellerDecide); return; }
+    if (e.target.closest('[data-seller-review-close]')) review.style.display = 'none';
+  });
 }
 
 // Lets a seller close their own seller account. Does NOT touch SQL/RLS/triggers —
@@ -5153,8 +5318,9 @@ async function renderSeller(){
       $('#sellApplyForm').style.display = 'none';
     } else if (status === 'rejected') {
       $('#sellerApplyTitle').textContent = 'Application not approved';
-      $('#sellerApplyMessage').textContent = "An admin didn't approve your last seller application. New applications open once admin verification setup is complete.";
-      $('#sellApplyForm').style.display = 'none';
+      $('#sellerApplyMessage').textContent = "An admin didn't approve your last seller application. You can correct the details and apply again.";
+      renderSellApplyForm();
+      $('#sellApplyForm').style.display = '';
     } else {
       $('#sellerApplyTitle').textContent = 'Sell on ORHANO';
       $('#sellerApplyMessage').textContent = 'Apply to sell your own products on ORHANO as an individual seller. Your buyer account stays the same, and you can keep shopping. An admin reviews every application before you can list products.';
@@ -5440,6 +5606,7 @@ async function renderAdmin(){
   // Task 13D-1: cached so loadAdminUsers can re-render this with
   // email/mobile once the admin-users Edge Function data arrives.
   adminSellerAppsCache = sellerApps || [];
+  await loadAdminSellerApplications();
   renderAdminSellerApps();
 
   // Task 13D-2: cache for the search box below (see renderAdminSellers).
@@ -7211,7 +7378,8 @@ document.getElementById('settingsCurrencySelect')?.addEventListener('change', e 
   toast(`Prices now shown in ${state.currency}`);
 });
 
-$('#sellApplyForm').addEventListener('submit', e => e.preventDefault());
+initSellerApplicationForm();
+initAdminSellerApplicationHandlers();
 
 /* ID document pickers: tap a box to choose a JPEG or PNG and show it inside the box. Nothing is uploaded here. */
 (function initIdDocumentPickers(){

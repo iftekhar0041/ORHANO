@@ -3651,6 +3651,13 @@ async function renderMessages(){
   if (state.msgTab === 'alerts') return renderRealAlerts();
 }
 
+// Opens a product from a review-reply alert. Loads the catalog first when this product
+// is not in it yet, and shows a message when the product is no longer available.
+async function openAlertProduct(productId){
+  if (!PRODUCTS.some(p => p.id === productId)) await loadProductsFromDB();
+  if (!PRODUCTS.some(p => p.id === productId)) { toast('This product is no longer available'); return; }
+  openProduct(productId);
+}
 async function renderRealAlerts(){
   const seq = ++alertsRenderSeq;
   const isCurrent = () => seq === alertsRenderSeq && state.msgTab === 'alerts';
@@ -3732,23 +3739,31 @@ async function renderRealAlerts(){
     });
   }
 
-  // 4b) Review-reply alerts — buyer: a seller replied to my review. Product
-  // name is resolved from the already-loaded PRODUCTS catalog (no extra
-  // nested join) and falls back gracefully if the product isn't in it.
+  // 4b) Review-reply alerts — buyer: a seller replied to my review. The product
+  // name is read from the database by product ID, so it is correct even when the
+  // product catalog has not loaded yet. Tapping opens the product (openAlertProduct).
   const { data: myReplies } = await sb.from('review_replies')
     .select('id, reply_text, created_at, review_id, reviews!inner(buyer_id, product_id)')
     .eq('reviews.buyer_id', me)
     .order('created_at', { ascending: false }).limit(15);
   if (!isCurrent()) return;
-  (myReplies || []).forEach(rr => {
+  const replyRows = myReplies || [];
+  const replyProductIds = [...new Set(replyRows.map(rr => rr.reviews?.product_id).filter(Boolean))];
+  const replyNames = {};
+  if (replyProductIds.length) {
+    const { data: replyProducts } = await sb.from('products').select('id, name').in('id', replyProductIds);
+    if (!isCurrent()) return;
+    (replyProducts || []).forEach(pr => { replyNames[pr.id] = pr.name; });
+  }
+  replyRows.forEach(rr => {
     const productId = rr.reviews?.product_id;
-    const productName = PRODUCTS.find(p => p.id === productId)?.name || 'a product';
+    const productName = replyNames[productId] || PRODUCTS.find(p => p.id === productId)?.name || 'a product';
     items.push({
       icon: '💬',
       title: `Seller replied to your review of ${productName}`,
       body: (rr.reply_text || '').slice(0, 80),
       ts: rr.created_at, unread: !(seen.replies || []).includes(rr.id),
-      gotoAttr: productId ? `data-open-product="${productId}"` : '',
+      gotoAttr: productId ? `data-alert-product="${productId}"` : '',
       seenKey: ['replies', rr.id],
     });
   });
@@ -3815,6 +3830,12 @@ async function renderRealAlerts(){
         <p>${escapeHtml(m.body || '')}</p>
       </div>
     </div>`).join('');
+
+  // Review-reply alerts open their product through openAlertProduct (not the shared
+  // data-open-product handler), so a product not yet in the catalog is loaded first.
+  list.querySelectorAll('[data-alert-product]').forEach(el => {
+    el.addEventListener('click', () => openAlertProduct(Number(el.dataset.alertProduct)));
+  });
 
   // Mark the non-chat items as seen now that they've actually been shown.
   // Chat items are skipped (seenKey is null) — their real read state only
